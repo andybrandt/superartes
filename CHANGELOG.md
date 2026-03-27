@@ -1,5 +1,19 @@
 # Changelog
 
+## [5.0.6-andy.1] - 2026-03-27 (andybrandt fork)
+
+### Changed
+
+- **Feature branches instead of worktrees**: Replaced `using-git-worktrees` skill with `using-feature-branches`. Uses standard `git checkout -b` instead of `git worktree add`. Removed worktree cleanup from `finishing-a-development-branch`. Updated all cross-references.
+- **Commit policy**: Replaced "frequent commits" with "commit at releasable checkpoints" — all tests pass, codebase works, change is coherent. Affects `writing-plans` and `subagent-driven-development` skills.
+- **Simplified doc paths**: Default paths for specs and plans changed from `docs/superpowers/specs/` and `docs/superpowers/plans/` to `docs/specs/` and `docs/plans/`.
+- **Fork metadata**: Plugin description, version, and URLs updated to identify this fork. Installation instructions point to `andybrandt/superpowers-andy`.
+
+### Added
+
+- `CLAUDE.md` for Claude Code project guidance
+- `docs/installing-fork-in-claude-code.md` — installation guide for this fork
+
 ## [5.0.5] - 2026-03-17
 
 ### Fixed
