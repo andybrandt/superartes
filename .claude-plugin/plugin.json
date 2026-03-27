@@ -1,12 +1,11 @@
 {
-  "name": "superpowers",
-  "description": "Core skills library for Claude Code: TDD, debugging, collaboration patterns, and proven techniques (andybrandt fork)",
+  "name": "superartes",
+  "description": "Core skills library for Claude Code: TDD, debugging, collaboration patterns, and proven techniques",
   "author": {
-    "name": "Jesse Vincent",
-    "email": "jesse@fsck.com"
+    "name": "Andy Brandt"
   },
-  "homepage": "https://github.com/andybrandt/superpowers-andy",
-  "repository": "https://github.com/andybrandt/superpowers-andy",
+  "homepage": "https://github.com/andybrandt/superartes",
+  "repository": "https://github.com/andybrandt/superartes",
   "license": "MIT",
   "keywords": [
     "skills",

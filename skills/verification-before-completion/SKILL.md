@@ -120,7 +120,7 @@ From 24 failure memories:
 - ANY variation of success/completion claims
 - ANY expression of satisfaction
 - ANY positive statement about work state
-- Committing (use `superpowers:commit-message` for message format), PR creation, task completion
+- Committing (use `superartes:commit-message` for message format), PR creation, task completion
 - Moving to next task
 - Delegating to agents
 

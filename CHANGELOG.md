@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.0.0] - 2026-03-27 (superartes)
+
+### Changed
+- Renamed plugin from "superpowers" to "superartes" to avoid marketplace name collision with obra/superpowers
+- Fresh versioning starting at v1.0.0
+- Based on superpowers v5.0.6 fork (5.0.6-andy.2)
+- Added commit-message skill with cross-references
+- Author changed to Andy Brandt in all manifests
+
 ## [5.0.6-andy.2] - 2026-03-27 (andybrandt fork)
 
 ### Added

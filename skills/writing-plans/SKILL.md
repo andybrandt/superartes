@@ -49,7 +49,7 @@ This structure informs the task decomposition. Each task should produce self-con
 ```markdown
 # [Feature Name] Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superartes:subagent-driven-development (recommended) or superartes:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** [One sentence describing what this builds]
 
@@ -105,7 +105,7 @@ git commit -m "feat: add specific feature"
 
 Note: `.py` extension is used in the above example, use correct extensions and naming conventions for the programming language used.
 
-**Commit policy:** A commit step means all tests pass and the codebase is in a releasable state. An incomplete feature is fine to commit as long as what exists works. Do not add commit steps after trivial or intermediate changes — only at releasable checkpoints. Use `superpowers:commit-message` for message formatting.
+**Commit policy:** A commit step means all tests pass and the codebase is in a releasable state. An incomplete feature is fine to commit as long as what exists works. Do not add commit steps after trivial or intermediate changes — only at releasable checkpoints. Use `superartes:commit-message` for message formatting.
 
 ## No Placeholders
 
@@ -148,9 +148,9 @@ After saving the plan, offer execution choice:
 **Which approach?"**
 
 **If Subagent-Driven chosen:**
-- **REQUIRED SUB-SKILL:** Use superpowers:subagent-driven-development
+- **REQUIRED SUB-SKILL:** Use superartes:subagent-driven-development
 - Fresh subagent per task + two-stage review
 
 **If Inline Execution chosen:**
-- **REQUIRED SUB-SKILL:** Use superpowers:executing-plans
+- **REQUIRED SUB-SKILL:** Use superartes:executing-plans
 - Batch execution with checkpoints for review

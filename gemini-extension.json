@@ -1,6 +1,6 @@
 {
-  "name": "superpowers",
+  "name": "superartes",
   "description": "Core skills library: TDD, debugging, collaboration patterns, and proven techniques",
-  "version": "5.0.6-andy.2",
+  "version": "1.0.0",
   "contextFileName": "GEMINI.md"
 }

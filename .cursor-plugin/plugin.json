@@ -1,14 +1,13 @@
 {
-  "name": "superpowers",
-  "displayName": "Superpowers",
+  "name": "superartes",
+  "displayName": "Superartes",
   "description": "Core skills library: TDD, debugging, collaboration patterns, and proven techniques",
-  "version": "5.0.6-andy.2",
+  "version": "1.0.0",
   "author": {
-    "name": "Jesse Vincent",
-    "email": "jesse@fsck.com"
+    "name": "Andy Brandt"
   },
-  "homepage": "https://github.com/obra/superpowers",
-  "repository": "https://github.com/obra/superpowers",
+  "homepage": "https://github.com/andybrandt/superartes",
+  "repository": "https://github.com/andybrandt/superartes",
   "license": "MIT",
   "keywords": [
     "skills",

@@ -1,19 +1,17 @@
 {
-  "name": "superpowers-andy",
-  "description": "andybrandt's fork of Superpowers",
+  "name": "superartes",
+  "description": "Superartes - skills library for AI coding agents",
   "owner": {
-    "name": "Andy Brandt",
-    "email": ""
+    "name": "Andy Brandt"
   },
   "plugins": [
     {
-      "name": "superpowers",
-      "description": "Core skills library for Claude Code: TDD, debugging, collaboration patterns, and proven techniques (andybrandt fork)",
-      "version": "5.0.6-andy.2",
+      "name": "superartes",
+      "description": "Core skills library for Claude Code: TDD, debugging, collaboration patterns, and proven techniques",
+      "version": "1.0.0",
       "source": "./",
       "author": {
-        "name": "Jesse Vincent",
-        "email": "jesse@fsck.com"
+        "name": "Andy Brandt"
       }
     }
   ]
