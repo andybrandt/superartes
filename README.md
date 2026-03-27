@@ -1,4 +1,8 @@
-# Superpowers
+# Superpowers (andybrandt fork)
+
+This is a personal fork of [obra/superpowers](https://github.com/obra/superpowers) with workflow modifications. See [Changes from upstream](#changes-from-upstream) below.
+
+---
 
 Superpowers is a complete software development workflow for your coding agents, built on top of a set of composable "skills" and some initial instructions that make sure your agent uses them.
 
@@ -24,85 +28,76 @@ Thanks!
 - Jesse
 
 
+## Changes from upstream
+
+Based on upstream v5.0.6. This fork introduces the following changes:
+
+- **Feature branches instead of worktrees**: Replaced the `using-git-worktrees` skill with `using-feature-branches`. Uses standard `git checkout -b` instead of `git worktree add`. The `finishing-a-development-branch` skill was updated accordingly (worktree cleanup removed). All cross-references updated.
+
+- **Commit at releasable checkpoints**: Replaced the "frequent commits" philosophy with a policy of committing only at releasable checkpoints — all tests pass, codebase works, change is coherent. Trivial or work-in-progress commits are discouraged. Affects `writing-plans` and `subagent-driven-development` skills.
+
+- **Simplified doc paths**: Default paths for specs and plans changed from `docs/superpowers/specs/` and `docs/superpowers/plans/` to `docs/specs/` and `docs/plans/`.
+
 ## Installation
 
-**Note:** Installation differs by platform. Claude Code or Cursor have built-in plugin marketplaces. Codex and OpenCode require manual setup.
+**Note:** This is the andybrandt fork. For the original, see [obra/superpowers](https://github.com/obra/superpowers).
 
-### Claude Code Official Marketplace
+### Claude Code
 
-Superpowers is available via the [official Claude plugin marketplace](https://claude.com/plugins/superpowers)
-
-Install the plugin from Claude marketplace:
+Register this fork as a marketplace, then install:
 
 ```bash
-/plugin install superpowers@claude-plugins-official
+/plugin marketplace add andybrandt/superpowers-andy
+/plugin install superpowers@superpowers-andy
 ```
 
-### Claude Code (via Plugin Marketplace)
-
-In Claude Code, register the marketplace first:
+To update after new commits are pushed:
 
 ```bash
-/plugin marketplace add obra/superpowers-marketplace
+/plugin marketplace update superpowers-andy
 ```
 
-Then install the plugin from this marketplace:
+For local development/testing without pushing to GitHub:
 
 ```bash
-/plugin install superpowers@superpowers-marketplace
+claude --plugin-dir /path/to/superpowers-andy
 ```
 
-### Cursor (via Plugin Marketplace)
-
-In Cursor Agent chat, install from marketplace:
-
-```text
-/add-plugin superpowers
-```
-
-or search for "superpowers" in the plugin marketplace.
+See [docs/installing-fork-in-claude-code.md](docs/installing-fork-in-claude-code.md) for details.
 
 ### Codex
 
-Tell Codex:
-
+```bash
+git clone https://github.com/andybrandt/superpowers-andy.git ~/.codex/superpowers
+mkdir -p ~/.agents/skills
+ln -s ~/.codex/superpowers/skills ~/.agents/skills/superpowers
 ```
-Fetch and follow instructions from https://raw.githubusercontent.com/obra/superpowers/refs/heads/main/.codex/INSTALL.md
-```
-
-**Detailed docs:** [docs/README.codex.md](docs/README.codex.md)
 
 ### OpenCode
 
-Tell OpenCode:
+Add to your `opencode.json`:
 
+```json
+{
+  "plugin": ["superpowers@git+https://github.com/andybrandt/superpowers-andy.git"]
+}
 ```
-Fetch and follow instructions from https://raw.githubusercontent.com/obra/superpowers/refs/heads/main/.opencode/INSTALL.md
-```
-
-**Detailed docs:** [docs/README.opencode.md](docs/README.opencode.md)
 
 ### Gemini CLI
 
 ```bash
-gemini extensions install https://github.com/obra/superpowers
-```
-
-To update:
-
-```bash
-gemini extensions update superpowers
+gemini extensions install https://github.com/andybrandt/superpowers-andy
 ```
 
 ### Verify Installation
 
-Start a new session in your chosen platform and ask for something that should trigger a skill (for example, "help me plan this feature" or "let's debug this issue"). The agent should automatically invoke the relevant superpowers skill.
+Start a new session and ask for something that should trigger a skill (for example, "help me plan this feature" or "let's debug this issue"). The agent should automatically invoke the relevant superpowers skill.
 
 ## The Basic Workflow
 
 1. **brainstorming** - Activates before writing code. Refines rough ideas through questions, explores alternatives, presents design in sections for validation. Saves design document.
 
-2. **using-git-worktrees** - Activates after design approval. Creates isolated workspace on new branch, runs project setup, verifies clean test baseline.
+2. **using-feature-branches** - Activates after design approval. Creates feature branch, runs project setup, verifies clean test baseline.
 
 3. **writing-plans** - Activates with approved design. Breaks work into bite-sized tasks (2-5 minutes each). Every task has exact file paths, complete code, verification steps.
 
@@ -112,7 +107,7 @@ Start a new session in your chosen platform and ask for something that should tr
 
 6. **requesting-code-review** - Activates between tasks. Reviews against plan, reports issues by severity. Critical issues block progress.
 
-7. **finishing-a-development-branch** - Activates when tasks complete. Verifies tests, presents options (merge/PR/keep/discard), cleans up worktree.
+7. **finishing-a-development-branch** - Activates when tasks complete. Verifies tests, presents options (merge/PR/keep/discard).
 
 **The agent checks for relevant skills before any task.** Mandatory workflows, not suggestions.
 
@@ -134,7 +129,7 @@ Start a new session in your chosen platform and ask for something that should tr
 - **dispatching-parallel-agents** - Concurrent subagent workflows
 - **requesting-code-review** - Pre-review checklist
 - **receiving-code-review** - Responding to feedback
-- **using-git-worktrees** - Parallel development branches
+- **using-feature-branches** - Feature branch isolation
 - **finishing-a-development-branch** - Merge/PR decision workflow
 - **subagent-driven-development** - Fast iteration with two-stage review (spec compliance, then code quality)
 
@@ -164,10 +159,10 @@ See `skills/writing-skills/SKILL.md` for the complete guide.
 
 ## Updating
 
-Skills update automatically when you update the plugin:
+For Claude Code:
 
 ```bash
-/plugin update superpowers
+/plugin marketplace update superpowers-andy
 ```
 
 ## License
@@ -182,6 +177,6 @@ For community support, questions, and sharing what you're building with Superpow
 
 ## Support
 
-- **Discord**: [Join us on Discord](https://discord.gg/Jd8Vphy9jq)
-- **Issues**: https://github.com/obra/superpowers/issues
-- **Marketplace**: https://github.com/obra/superpowers-marketplace
+- **Upstream**: [obra/superpowers](https://github.com/obra/superpowers)
+- **Upstream Discord**: [Join on Discord](https://discord.gg/Jd8Vphy9jq)
+- **This fork**: https://github.com/andybrandt/superpowers-andy

@@ -1,15 +1,15 @@
 {
-  "name": "superpowers-dev",
-  "description": "Development marketplace for Superpowers core skills library",
+  "name": "superpowers-andy",
+  "description": "andybrandt's fork of Superpowers",
   "owner": {
-    "name": "Jesse Vincent",
-    "email": "jesse@fsck.com"
+    "name": "Andy Brandt",
+    "email": ""
   },
   "plugins": [
     {
       "name": "superpowers",
-      "description": "Core skills library for Claude Code: TDD, debugging, collaboration patterns, and proven techniques",
-      "version": "5.0.6",
+      "description": "Core skills library for Claude Code: TDD, debugging, collaboration patterns, and proven techniques (andybrandt fork)",
+      "version": "5.0.6-andy.1",
       "source": "./",
       "author": {
         "name": "Jesse Vincent",
