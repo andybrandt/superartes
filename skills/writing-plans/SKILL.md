@@ -105,7 +105,7 @@ git commit -m "feat: add specific feature"
 
 Note: `.py` extension is used in the above example, use correct extensions and naming conventions for the programming language used.
 
-**Commit policy:** A commit step means all tests pass and the codebase is in a releasable state. An incomplete feature is fine to commit as long as what exists works. Do not add commit steps after trivial or intermediate changes — only at releasable checkpoints.
+**Commit policy:** A commit step means all tests pass and the codebase is in a releasable state. An incomplete feature is fine to commit as long as what exists works. Do not add commit steps after trivial or intermediate changes — only at releasable checkpoints. Use `superpowers:commit-message` for message formatting.
 
 ## No Placeholders
 

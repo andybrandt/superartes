@@ -168,3 +168,4 @@ git branch -D <feature-branch>
 
 **Pairs with:**
 - **using-feature-branches** - Creates the branch this skill finishes
+- **commit-message** - Use for commit and merge commit message formatting

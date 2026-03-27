@@ -38,6 +38,8 @@ Based on upstream v5.0.6. This fork introduces the following changes:
 
 - **Simplified doc paths**: Default paths for specs and plans changed from `docs/superpowers/specs/` and `docs/superpowers/plans/` to `docs/specs/` and `docs/plans/`.
 
+- **Commit message skill**: Bundled `commit-message` skill for consistent commit message formatting — short one-line messages, version prefix format, `fixes #N` convention, and version tagging. Referenced from `verification-before-completion`, `finishing-a-development-branch`, and `writing-plans` skills.
+
 ## Installation
 
 **Note:** This is the andybrandt fork. For the original, see [obra/superpowers](https://github.com/obra/superpowers).

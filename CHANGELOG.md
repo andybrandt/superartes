@@ -1,5 +1,12 @@
 # Changelog
 
+## [5.0.6-andy.2] - 2026-03-27 (andybrandt fork)
+
+### Added
+
+- **commit-message skill**: Bundled commit message formatting skill (short one-line messages, version prefix format, `fixes #N` convention, version tagging). Previously a personal skill, now part of the plugin for consistent use by all agents and subagents.
+- Cross-references to `commit-message` skill in `verification-before-completion`, `finishing-a-development-branch`, and `writing-plans` skills.
+
 ## [5.0.6-andy.1] - 2026-03-27 (andybrandt fork)
 
 ### Changed
