@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.1] - 2026-03-29
+
+### Changed
+- **Controller commits, not subagents**: In subagent-driven-development, only the main agent (controller) commits — after both reviews pass, using the `commit-message` skill. Subagents no longer commit. This ensures consistent commit messages and gives the controller the opportunity to make additional modifications before committing.
+- **Commit-message skill used for all artifacts**: Brainstorming design docs and implementation plans are now committed using the `commit-message` skill for consistent formatting.
+
 ## [1.0.0] - 2026-03-27 (superartes)
 
 ### Changed

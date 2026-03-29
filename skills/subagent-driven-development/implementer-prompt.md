@@ -32,9 +32,10 @@ Task tool (general-purpose):
     1. Implement exactly what the task specifies
     2. Write tests (following TDD if task says to)
     3. Verify implementation works
-    4. Commit your work
-    5. Self-review (see below)
-    6. Report back
+    4. Self-review (see below)
+    5. Report back
+
+    **Do NOT commit.** The controller (main agent) will commit after reviews pass.
 
     Work from: [directory]
 

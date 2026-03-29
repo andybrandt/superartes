@@ -139,6 +139,8 @@ If you find issues, fix them inline. No need to re-review — just fix and move 
 
 After saving the plan, offer execution choice:
 
+Commit the plan using `superartes:commit-message` for message formatting.
+
 **"Plan complete, saved to `docs/plans/<filename>.md` and committed. Two execution options:**
 
 **1. Subagent-Driven (recommended)** - I dispatch a fresh subagent per task, review between tasks, fast iteration
