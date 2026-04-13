@@ -130,6 +130,14 @@ From 24 failure memories:
 - Implications of success
 - ANY communication suggesting completion/correctness
 
+## Before Committing
+
+After verification passes and you are about to run `git commit`:
+
+**REQUIRED: Invoke `superartes:commit-message` before writing any commit message.**
+
+Do not write the commit message from memory of the skill's rules. Invoke the skill every time. This is not optional.
+
 ## The Bottom Line
 
 **No shortcuts for verification.**
