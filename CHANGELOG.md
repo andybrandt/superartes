@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.3] - 2026-04-13
+
+### Added
+- **using-stitch skill**: New skill for UI/UX design using [Google Stitch](https://stitch.withgoogle.com/) MCP. Covers project setup, design system creation (colors, typography, roundness), screen generation, variant exploration, and iterative preview workflow. Requires the Stitch MCP server to be connected.
+- **Stitch integration in brainstorming**: Brainstorming skill now checks for Stitch MCP availability when the work involves UI/UX. If present, Stitch replaces the Visual Companion for UI design work; Visual Companion remains available for non-UI visuals (architecture diagrams, flow charts).
+
 ## [1.0.2] - 2026-04-13
 
 ### Removed

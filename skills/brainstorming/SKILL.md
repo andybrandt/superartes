@@ -22,7 +22,7 @@ Every project goes through this process. A todo list, a single-function utility,
 You MUST create a task for each of these items and complete them in order:
 
 1. **Explore project context** — check files, docs, recent plans, recent commits
-2. **Offer visual companion** (if topic will involve visual questions) — this is its own message, not combined with a clarifying question. See the Visual Companion section below.
+2. **Visual design tooling** — if the work involves UI/UX, check for Stitch MCP or Visual Companion (see Visual Design Tooling section below)
 3. **Ask clarifying questions** — one at a time, understand intent/purpose/constraints/success criteria
 4. **Propose 2-3 approaches** — with trade-offs and your recommendation
 5. **Present design** — in sections scaled to their complexity, get user approval after each section
@@ -36,6 +36,9 @@ You MUST create a task for each of these items and complete them in order:
 ```dot
 digraph brainstorming {
     "Explore project context" [shape=box];
+    "UI/UX work?" [shape=diamond];
+    "Stitch MCP available?" [shape=diamond];
+    "Invoke using-stitch\n(replaces Visual Companion\nfor UI design)" [shape=box];
     "Visual questions ahead?" [shape=diamond];
     "Offer Visual Companion\n(own message, no other content)" [shape=box];
     "Ask clarifying questions" [shape=box];
@@ -47,7 +50,12 @@ digraph brainstorming {
     "User reviews spec?" [shape=diamond];
     "Invoke writing-plans skill" [shape=doublecircle];
 
-    "Explore project context" -> "Visual questions ahead?";
+    "Explore project context" -> "UI/UX work?";
+    "UI/UX work?" -> "Stitch MCP available?" [label="yes"];
+    "UI/UX work?" -> "Visual questions ahead?" [label="no"];
+    "Stitch MCP available?" -> "Invoke using-stitch\n(replaces Visual Companion\nfor UI design)" [label="yes"];
+    "Stitch MCP available?" -> "Visual questions ahead?" [label="no"];
+    "Invoke using-stitch\n(replaces Visual Companion\nfor UI design)" -> "Ask clarifying questions";
     "Visual questions ahead?" -> "Offer Visual Companion\n(own message, no other content)" [label="yes"];
     "Visual questions ahead?" -> "Ask clarifying questions" [label="no"];
     "Offer Visual Companion\n(own message, no other content)" -> "Ask clarifying questions";
@@ -144,9 +152,19 @@ Wait for the user's response. If they request changes, make them and re-run the 
 - **Incremental validation** - Present design, get approval before moving on
 - **Be flexible** - Go back and clarify when something doesn't make sense
 
-## Visual Companion
+## Visual Design Tooling
+
+### Google Stitch (preferred for UI/UX)
+
+If the work involves UI/UX design AND `mcp__stitch__*` tools are available, invoke `superartes:using-stitch`. Stitch generates real, previewable UI designs — it replaces the Visual Companion for UI design work. The Visual Companion remains available alongside Stitch for non-UI visuals (architecture diagrams, flow charts, logic diagrams).
+
+**Only invoke using-stitch for UI/UX work.** Backend APIs, data pipelines, CLI tools — these do not need Stitch.
+
+### Visual Companion
 
 A browser-based companion for showing mockups, diagrams, and visual options during brainstorming. Available as a tool — not a mode. Accepting the companion means it's available for questions that benefit from visual treatment; it does NOT mean every question goes through the browser.
+
+**When Stitch is active:** Only offer the Visual Companion for non-UI visuals (architecture diagrams, flow charts). Do NOT offer it for UI mockups/wireframes — Stitch handles those.
 
 **Offering the companion:** When you anticipate that upcoming questions will involve visual content (mockups, layouts, diagrams), offer it once for consent:
 > "Some of what we're working on might be easier to explain if I can show it to you in a web browser. I can put together mockups, diagrams, comparisons, and other visuals as we go. This feature is still new and can be token-intensive. Want to try it? (Requires opening a local URL)"

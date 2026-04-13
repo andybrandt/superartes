@@ -95,7 +95,8 @@ Start a new session and ask for something that should trigger a skill (for examp
 - **verification-before-completion** - Ensure it's actually fixed
 
 **Collaboration**
-- **brainstorming** - Socratic design refinement
+- **brainstorming** - Socratic design refinement (integrates with Stitch for UI/UX work when available)
+- **using-stitch** - UI/UX design via [Google Stitch](https://stitch.withgoogle.com/) MCP (requires [Stitch MCP server](https://stitch.withgoogle.com/docs/mcp/))
 - **writing-plans** - Detailed implementation plans
 - **executing-plans** - Batch execution with checkpoints
 - **dispatching-parallel-agents** - Concurrent subagent workflows
@@ -109,6 +110,14 @@ Start a new session and ask for something that should trigger a skill (for examp
 **Meta**
 - **writing-skills** - Create new skills following best practices (includes testing methodology)
 - **using-superartes** - Introduction to the skills system
+
+## Optional Dependencies
+
+Some skills integrate with external tools when available. They are not required — skills gracefully fall back when tools are absent.
+
+| Tool | Skill | Purpose |
+|------|-------|---------|
+| [Google Stitch MCP](https://stitch.withgoogle.com/docs/mcp/) | using-stitch, brainstorming | AI-powered UI/UX design generation, iteration, and preview |
 
 ## Philosophy
 

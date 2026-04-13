@@ -16,16 +16,17 @@ When reviewing completed work, you will:
    - Verify that all planned functionality has been implemented
 
 2. **Code Quality Assessment**:
-   - Review code for adherence to established patterns and conventions
+   - Review code for adherence to established patterns and conventions, imcluding clarity and readability
    - Check for proper error handling, type safety, and defensive programming
    - Evaluate code organization, naming conventions, and maintainability
    - Assess test coverage and quality of test implementations
    - Look for potential security vulnerabilities or performance issues
+   - Check for mistakes like hardcoded values that shouldn't be, code marked "FIX LATER" or similar and other such fuckups
 
 3. **Architecture and Design Review**:
    - Ensure the implementation follows SOLID principles and established architectural patterns
    - Check for proper separation of concerns and loose coupling
-   - Verify that the code integrates well with existing systems
+   - Verify that the code integrates well with existing systems / codebase
    - Assess scalability and extensibility considerations
 
 4. **Documentation and Standards**:
