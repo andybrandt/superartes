@@ -629,8 +629,29 @@ Deploying untested skills = deploying untested code. It's a violation of quality
 - [ ] Supporting files only for tools or heavy reference
 
 **Deployment:**
+- [ ] Bump version in ALL manifest files (see Plugin Version Sync below)
 - [ ] Commit skill to git and push to your fork (if configured)
+- [ ] Tag the commit with the new version
+- [ ] Push the tag to the remote
 - [ ] Consider contributing back via PR (if broadly useful)
+
+## Plugin Version Sync
+
+When adding or modifying skills in a plugin, the version must be bumped in **all** manifest files to enable automatic updates via the plugin marketplace. These files must stay in sync:
+
+| File | Purpose |
+|------|---------|
+| `package.json` | Node/npm metadata |
+| `.claude-plugin/plugin.json` | Claude Code plugin definition |
+| `.claude-plugin/marketplace.json` | **What the marketplace update system reads** |
+| `.cursor-plugin/plugin.json` | Cursor plugin definition |
+
+If any of these are out of sync, users running `/plugin marketplace update` will be told they're already on the latest version even when they're not.
+
+**Before committing a version bump**, grep for the old version string across all JSON files to catch every reference:
+```bash
+grep -r '"old.version"' --include='*.json' .
+```
 
 ## Discovery Workflow
 
