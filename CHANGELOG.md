@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.2] - 2026-04-13
+
+### Removed
+- **Deprecated commands folder**: Removed `commands/` directory (`brainstorm.md`, `execute-plan.md`, `write-plan.md`) — superseded by the Skill tool system.
+- **Legacy skills migration warning**: Removed check for `~/.config/superartes/skills` from `hooks/session-start` — this was carried over from superpowers and never applied to superartes.
+
 ## [1.0.1] - 2026-03-29
 
 ### Changed
