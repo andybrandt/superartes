@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.4] - 2026-04-13
+
+### Changed
+- **verification-before-completion**: Added explicit "Before Committing" section requiring invocation of `commit-message` skill before any `git commit`.
+- **writing-skills**: Added "Plugin Version Sync" section to deployment checklist — documents all manifest files that must be kept in sync for marketplace updates to work.
+
 ## [1.0.3] - 2026-04-13
 
 ### Added
