@@ -4,12 +4,12 @@
 
 Add automated external review of design specs and implementation plans by invoking Gemini CLI in headless, read-only mode. This introduces a new `gemini-review` skill that brainstorming and writing-plans invoke after their existing inline self-review step, before the user review gate.
 
-The goal is to automate what has been a manual workflow: after Claude produces a document, the user manually asked Gemini to review it, pasted the feedback back to Claude, and iterated until satisfied. This design makes Claude orchestrate that loop directly.
+The goal is to automate what has been a manual workflow: after Claude produced a document, the user manually asked Gemini to review it, pasted the feedback back to Claude, and iterated until satisfied. This design makes Claude orchestrate that loop directly.
 
 ## Motivation
 
 - **An independent AI perspective catches different issues.** Claude's inline self-review checks consistency and completeness, but it's the same model reviewing its own work. Gemini brings a genuinely different perspective — different training, different reasoning patterns, different blind spots.
-- **Collaborative, not just adversarial.** The review asks for suggestions and improvements, not just error-finding. The two models collaborate to produce better documents.
+- **Collaborative, not just adversarial.** The review asks for suggestions and improvements, not just error-finding. The two models collaborate to produce better designs and plans.
 - **Reduces manual toil.** The user was doing this every time by hand. Automating it saves time and makes the quality gate consistent.
 
 ## Design Decisions
@@ -71,7 +71,8 @@ skills/gemini-review/
    <composed prompt with role, context, documents, focus>
    EOF
    ```
-   The prompt MUST be passed via heredoc (with single-quoted `'EOF'` delimiter) to avoid shell escaping issues — dynamic prompts will contain `$`, backticks, quotes, and other characters that break double-quoted strings. The Bash tool timeout should be set to 180 seconds.
+   The prompt MUST be passed via heredoc (with single-quoted `'EOF'` delimiter) to avoid shell escaping issues — dynamic prompts will contain `$`, backticks, quotes, and other characters that break double-quoted strings. The Bash tool timeout should be set to 280 seconds.
+
 **Fallback path (step 2b) — when Gemini CLI is not available:**
 
 Dispatch a Claude subagent using the existing reviewer prompt templates:
@@ -85,7 +86,7 @@ Note to user: "Gemini CLI not available — running Claude subagent review inste
 4. **Triage feedback** into three buckets:
    - **Accept & apply** — clear improvements: bugs, omissions, inconsistencies, genuinely better ideas and suggestions. Fix in the document immediately.
    - **Reject** — reviewer lacked context, contradicts a deliberate decision, unhelpful. Skip, note briefly in summary.
-   - **Escalate** — genuine judgment calls, design decisions where both sides have merit. Present to user with Claude's own recommendation.
+   - **Escalate** — genuine judgment calls, design decisions where both sides have merit. Present to user along with Claude's own recommendation.
 5. **Summarize to user:**
    ```
    Gemini review processed:
@@ -117,7 +118,7 @@ The prompt should NOT:
 Reference material for Claude when composing prompts, covering:
 
 - **Spec reviews** focus on: architectural soundness, completeness, internal consistency, feasibility, YAGNI, gaps that would cause implementation problems, and suggestions for better approaches or simplifications
-- **Plan reviews** focus on: spec alignment, task decomposition quality, buildability, completeness of steps, and suggestions for better task ordering or alternative implementation approaches
+- **Plan reviews** focus on: spec alignment, task decomposition quality, buildability, completeness of steps, DRY, quality of algorithms and code snippets, suggestions for better task ordering or alternative implementation approaches
 - **Calibration:** flag real issues, not style preferences. A missing requirement is an issue. "I'd phrase this differently" is not.
 - **Re-reviews:** focus on what changed, don't re-raise resolved points
 
@@ -127,7 +128,7 @@ Reference material for Claude when composing prompts, covering:
 |---|---|
 | Gemini CLI not installed | Fall back to subagent review using existing reviewer prompt templates |
 | Non-zero exit / API error | Report error, fall back to subagent review |
-| Timeout (>180s) | Report timeout, fall back to subagent review |
+| Timeout (>280s) | Report timeout, fall back to subagent review |
 | Empty or unparseable output | Treat as failure, fall back to subagent review |
 | Subagent also fails | Report error, continue to user review (user is the final safety net) |
 
