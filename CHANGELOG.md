@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.0] - 2026-04-14
+
+### Added
+- **gemini-review skill**: New skill for automated external document review via [Gemini CLI](https://github.com/google-gemini/gemini-cli). Invokes Gemini in headless, read-only mode (`--approval-mode plan -m pro`) to independently review design specs and implementation plans. Falls back to a Claude subagent review (using existing reviewer prompt templates) when Gemini CLI is not available. Triages feedback into accept/reject/escalate buckets. This is the first feature significantly differentiating Superartes from the upstream Superpowers fork.
+- **External review step in brainstorming**: After spec self-review, brainstorming now invokes `gemini-review` before the user review gate.
+- **External review step in writing-plans**: After plan self-review, writing-plans now invokes `gemini-review` before offering execution options.
+- **Explicit user review gate in writing-plans**: Added a proper user review gate between external review and execution handoff (previously users relied on the execution choice prompt as an ad-hoc review point).
+
 ## [1.0.4] - 2026-04-13
 
 ### Changed

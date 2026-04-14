@@ -71,7 +71,7 @@ Start a new session and ask for something that should trigger a skill (for examp
 
 2. **using-feature-branches** - Activates after design approval. Creates feature branch, runs project setup, verifies clean test baseline.
 
-3. **writing-plans** - Activates with approved design. Breaks work into bite-sized tasks (2-5 minutes each). Every task has exact file paths, complete code, verification steps.
+3. **writing-plans** - Activates with approved design. Breaks work into bite-sized tasks (2-5 minutes each). Every task has exact file paths, complete code, verification steps. Plans go through external review (via Gemini CLI when available) before user review.
 
 4. **subagent-driven-development** or **executing-plans** - Activates with plan. Dispatches fresh subagent per task with two-stage review (spec compliance, then code quality), or executes in batches with human checkpoints.
 
@@ -105,6 +105,7 @@ Start a new session and ask for something that should trigger a skill (for examp
 - **using-feature-branches** - Feature branch isolation
 - **finishing-a-development-branch** - Merge/PR decision workflow
 - **subagent-driven-development** - Fast iteration with two-stage review (spec compliance, then code quality)
+- **gemini-review** - External document review via [Gemini CLI](https://github.com/google-gemini/gemini-cli) with Claude subagent fallback
 - **commit-message** - Consistent commit message formatting
 
 **Meta**
@@ -118,6 +119,7 @@ Some skills integrate with external tools when available. They are not required 
 | Tool | Skill | Purpose |
 |------|-------|---------|
 | [Google Stitch MCP](https://stitch.withgoogle.com/docs/mcp/) | using-stitch, brainstorming | AI-powered UI/UX design generation, iteration, and preview |
+| [Gemini CLI](https://github.com/google-gemini/gemini-cli) | gemini-review, brainstorming, writing-plans | Independent external review of design specs and implementation plans by a second AI model |
 
 ## Philosophy
 
