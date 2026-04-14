@@ -135,11 +135,24 @@ After writing the complete plan, look at the spec with fresh eyes and check the 
 
 If you find issues, fix them inline. No need to re-review — just fix and move on. If you find a spec requirement with no task, add the task.
 
+## External Review
+
+After self-review, invoke `superartes:gemini-review` with:
+- Document type: "plan"
+- The plan document path
+- The spec document path (for reference)
+
+## User Review Gate
+
+After the external review is processed, commit the plan using `superartes:commit-message` to prepare the relevant commit message. Then ask the user to review the plan before offering execution options:
+
+> "Plan written and committed to `<path>`. Please review it and let me know if you want to make any changes before we proceed to execution."
+
+Wait for the user's response. If they request changes, make them, re-run self-review, and re-run external review. Only proceed to execution handoff once the user approves.
+
 ## Execution Handoff
 
-After saving the plan, offer execution choice:
-
-Commit the plan using `superartes:commit-message` for message formatting.
+After the user approves the plan, offer execution choice:
 
 **"Plan complete, saved to `docs/plans/<filename>.md` and committed. Two execution options:**
 
