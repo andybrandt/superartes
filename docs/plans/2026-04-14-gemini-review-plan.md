@@ -37,15 +37,14 @@ description: Use when a design spec, implementation plan, or other document need
 
 Review a design spec or implementation plan by invoking Gemini CLI in headless, read-only mode. Falls back to a Claude subagent review when Gemini CLI is not available.
 
-## When This Skill Runs
+## Inputs
 
-This skill is invoked by other skills (brainstorming, writing-plans) after their inline self-review step, before the user review gate. It can also be invoked directly by user request.
-
-**Inputs the invoking skill must provide (in conversation context):**
+This skill needs to know:
 - The path to the document being reviewed
-- The document type: "spec" or "plan"
-- For plans: the path to the spec the plan is based on
-- Any related context documents (parent architecture docs, etc.)
+- The document type (e.g., "spec", "plan", or a brief description for other document types)
+- Related context documents, if any (parent architecture spec, the spec a plan is based on, etc.)
+
+When invoked by another skill (brainstorming, writing-plans), these are available in the conversation context. When invoked directly by user request, determine them from the user's message and the current conversation — ask the user if anything is unclear.
 
 ## Process
 
