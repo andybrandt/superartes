@@ -30,7 +30,7 @@ Create `skills/gemini-review/SKILL.md` with the following content:
 ```markdown
 ---
 name: gemini-review
-description: Use when a design spec or implementation plan has been written and self-reviewed, before the user review gate - invoked by brainstorming and writing-plans skills, or directly by user request
+description: Use when a design spec, implementation plan, or other document needs independent external review - runs Gemini CLI review with Claude subagent fallback, or when the user requests a Gemini review or second opinion on a document
 ---
 
 # External Document Review
