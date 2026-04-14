@@ -1,4 +1,4 @@
-# Gemini CLI Review Integration — Implementation Plan
+# Gemini CLI Review Integration - Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superartes:subagent-driven-development (recommended) or superartes:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -35,7 +35,7 @@ description: Use when a design spec, implementation plan, or other document need
 
 # External Document Review
 
-Review a design spec or implementation plan by invoking Gemini CLI in headless, read-only mode. Falls back to a Claude subagent review when Gemini CLI is not available.
+Review a design spec, an implementation plan or other document by invoking Gemini CLI in headless, read-only mode. Falls back to a Claude subagent review when Gemini CLI is not available.
 
 ## Inputs
 
@@ -44,7 +44,7 @@ This skill needs to know:
 - The document type (e.g., "spec", "plan", or a brief description for other document types)
 - Related context documents, if any (parent architecture spec, the spec a plan is based on, etc.)
 
-When invoked by another skill (brainstorming, writing-plans), these are available in the conversation context. When invoked directly by user request, determine them from the user's message and the current conversation — ask the user if anything is unclear.
+When invoked by another skill (brainstorming, writing-plans), these are available in the conversation context. When invoked directly by user request, determine them from the user's message and the current conversation - ask the user if anything is unclear.
 
 ## Process
 
@@ -73,20 +73,20 @@ digraph gemini_review {
 
 ### Step 1: Check Gemini CLI availability
 
-Run `which gemini` via the Bash tool. If it succeeds, proceed with Gemini review. If it fails, note to user: "Gemini CLI not available — running Claude subagent review instead." and skip to Step 4 (Subagent Fallback).
+Run `which gemini` via the Bash tool. If it succeeds, proceed with Gemini review. If it fails, note to user: "Gemini CLI not available - running Claude subagent review instead." and skip to Step 4 (Subagent Fallback).
 
 ### Step 2: Compose the review prompt
 
-Compose a contextual, tailored review prompt. Do NOT use a rigid template — write the prompt as if you were a developer asking a senior colleague for a thorough review. The prompt quality directly determines the review quality.
+Compose a contextual, tailored review prompt. Do NOT use a rigid template - write the prompt as if you were a developer asking a senior colleague for a thorough review. The prompt quality directly determines the review quality.
 
 **Include in the prompt:**
 
-1. **Role & context** — tell Gemini what project this is, what the document is, and where it fits in the bigger picture
-2. **Documents** — reference the primary document and any related context docs using `@path/to/file` syntax
-3. **Review focus** — what matters most for this particular document (architectural soundness? spec coverage? consistency with parent design?)
-4. **Situational context** — if this is a re-review, explain what changed and why since the last cycle
-5. **Permission to explore** — tell Gemini it has read-only access to the whole project and should look up files if needed
-6. **Collaborative framing** — ask for issues, suggestions, improvements, and alternative ideas — not just error-finding
+1. **Role & context** - tell Gemini what project this is, what the document is, and where it fits in the bigger picture as much as is needed for a good review
+2. **Documents** - reference the primary document to be reviewed and any related context docs using `@path/to/file` syntax
+3. **Review focus** - what matters most for this particular document (architectural soundness? spec coverage? consistency with parent design? technical merit? use of well known design patterns?)
+4. **Situational context** - if this is a re-review, explain what changed and why since the last cycle
+5. **Permission to explore** - tell Gemini it has read-only access to the whole project and should look up files if needed
+6. **Collaborative framing** - ask for issues, suggestions, improvements, and alternative ideas - not just error-finding
 
 **The prompt must NOT:**
 - Limit response length (this kills depth and defeats the purpose)
@@ -114,6 +114,7 @@ Set the Bash tool timeout to 280 seconds. The heredoc delimiter MUST use single 
 Dispatch a Claude subagent using the existing reviewer prompt templates:
 - For spec reviews: read `skills/brainstorming/spec-document-reviewer-prompt.md` and use its prompt template
 - For plan reviews: read `skills/writing-plans/plan-document-reviewer-prompt.md` and use its prompt template
+- For other documents create your own appropriate prompt for the subagents, you can use either or both of the templates listed above as inspiration
 
 Substitute `[SPEC_FILE_PATH]` and `[PLAN_FILE_PATH]` with the actual file paths. Dispatch using your platform's subagent tool (e.g., the Agent tool in Claude Code). If your platform does not support subagents, execute the review yourself in the current session using the template.
 
@@ -176,24 +177,26 @@ Reference material for composing review prompts. Read this before composing a re
 
 Focus the reviewer on:
 
-- **Architectural soundness** — does the proposed architecture make sense? Are the component boundaries clean? Will it scale to the stated requirements?
-- **Completeness** — are there missing sections, undefined behaviors, or gaps that would block implementation planning?
-- **Internal consistency** — do different sections contradict each other? Do data flows match component descriptions?
-- **Feasibility** — can this actually be built as described? Are there hidden complexity traps?
-- **YAGNI** — are there unrequested features, premature abstractions, or over-engineering?
-- **Suggestions** — alternative approaches, simplifications, better decompositions, edge cases worth considering
+- **Architectural soundness** - does the proposed architecture make sense? Are the component boundaries clean? Will it scale to the stated requirements?
+- **Completeness** - are there missing sections, undefined behaviors, or gaps that would block implementation planning?
+- **Internal consistency** - do different sections contradict each other? Do data flows match component descriptions?
+- **Feasibility** - can this actually be built as described? Are there hidden complexity traps?
+- **YAGNI** - are there unrequested features, premature abstractions, or over-engineering?
+- **DRY** - are we leveraging properly existing code & capabilities?
+- **Design patterns** - are we following known design patterns when they would be a good match for the problem?
+- **Suggestions** - alternative approaches, simplifications, better decompositions, edge cases worth considering
 
 ## Plan Reviews
 
 Focus the reviewer on:
 
-- **Spec alignment** — does the plan cover all spec requirements? Is there scope creep beyond the spec?
-- **Task decomposition** — are tasks well-bounded and independent? Could an engineer pick up any task and know exactly what to do?
-- **Buildability** — could someone follow this plan without getting stuck? Are there missing steps, unclear instructions, or implicit knowledge?
-- **Completeness** — are there placeholders, TODOs, or vague steps? Does every code step have actual code?
-- **DRY** — is there unnecessary duplication across tasks?
-- **Code quality** — are the algorithms and code snippets in the plan correct and well-designed?
-- **Suggestions** — better task ordering, alternative implementation approaches, missed optimizations
+- **Spec alignment** - does the plan cover all spec requirements? Is there scope creep beyond the spec?
+- **Task decomposition** - are tasks well-bounded and independent? Could an engineer pick up any task and know exactly what to do?
+- **Buildability** - could someone follow this plan without getting stuck? Are there missing steps, unclear instructions, or implicit knowledge?
+- **Completeness** - are there placeholders, TODOs, or vague steps? Does every code step have actual code?
+- **DRY** - is there unnecessary duplication across tasks?
+- **Code quality** - are the algorithms and code snippets in the plan correct and well-designed?
+- **Suggestions** - better task ordering, alternative implementation approaches, missed optimizations
 
 ## Calibration
 
@@ -262,7 +265,7 @@ If fixes were made, commit using `superartes:commit-message`.
 
 ---
 
-### Task 4: Update brainstorming skill — add Gemini review step
+### Task 4: Update brainstorming skill - add Gemini review step
 
 **Files:**
 - Modify: `skills/brainstorming/SKILL.md`
@@ -273,16 +276,16 @@ In `skills/brainstorming/SKILL.md`, find the checklist section (around line 22).
 
 Current:
 ```markdown
-7. **Spec self-review** — quick inline check for placeholders, contradictions, ambiguity, scope (see below)
-8. **User reviews written spec** — ask user to review the spec file before proceeding
+7. **Spec self-review** - quick inline check for placeholders, contradictions, ambiguity, scope (see below)
+8. **User reviews written spec** - ask user to review the spec file before proceeding
 ```
 
 Change to:
 ```markdown
-7. **Spec self-review** — quick inline check for placeholders, contradictions, ambiguity, scope (see below)
-8. **External review** — invoke `superartes:gemini-review` with document type "spec"
-9. **User reviews written spec** — ask user to review the spec file before proceeding
-10. **Transition to implementation** — invoke writing-plans skill to create implementation plan
+7. **Spec self-review** - quick inline check for placeholders, contradictions, ambiguity, scope (see below)
+8. **External review** - invoke `superartes:gemini-review` with document type "spec"
+9. **User reviews written spec** - ask user to review the spec file before proceeding
+10. **Transition to implementation** - invoke writing-plans skill to create implementation plan
 ```
 
 (Renumber item 9 → 10 accordingly.)
@@ -327,7 +330,7 @@ Commit using `superartes:commit-message`.
 
 ---
 
-### Task 5: Update writing-plans skill — add Gemini review step and user review gate
+### Task 5: Update writing-plans skill - add Gemini review step and user review gate
 
 **Files:**
 - Modify: `skills/writing-plans/SKILL.md`
@@ -373,7 +376,7 @@ To:
 After the user approves the plan, offer execution choice:
 ```
 
-(The commit step now lives in the User Review Gate section — the plan is committed before asking for review, just like brainstorming commits the spec before asking for review.)
+(The commit step now lives in the User Review Gate section - the plan is committed before asking for review, just like brainstorming commits the spec before asking for review.)
 
 - [ ] **Step 3: Verify the file is valid**
 
@@ -400,10 +403,10 @@ Commit using `superartes:commit-message`.
 - [ ] **Step 1: Review all changes together**
 
 Read all four modified/created files in sequence and verify consistency:
-1. `skills/gemini-review/SKILL.md` — the skill references `review-guidelines.md` and the reviewer prompt templates
-2. `skills/gemini-review/review-guidelines.md` — referenced by SKILL.md
-3. `skills/brainstorming/SKILL.md` — invokes `superartes:gemini-review` with type "spec"
-4. `skills/writing-plans/SKILL.md` — invokes `superartes:gemini-review` with type "plan"
+1. `skills/gemini-review/SKILL.md` - the skill references `review-guidelines.md` and the reviewer prompt templates
+2. `skills/gemini-review/review-guidelines.md` - referenced by SKILL.md
+3. `skills/brainstorming/SKILL.md` - invokes `superartes:gemini-review` with type "spec"
+4. `skills/writing-plans/SKILL.md` - invokes `superartes:gemini-review` with type "plan"
 
 Check:
 - The skill name used in invocations (`superartes:gemini-review`) matches the YAML `name` field (`gemini-review`)
