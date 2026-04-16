@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.1.1] - 2026-04-16
+
+### Fixed
+- **gemini-review cross-platform fix**: Replaced inline pipe invocation (`cat | gemini`) with a two-step approach using a temp file and `invoke-gemini.sh` wrapper script. Eliminates Claude Code's "Unhandled node type: pipeline" sandbox prompt that blocked every Gemini invocation with no way to permanently accept. Also changed `which gemini` to `command -v gemini` for better portability across bash variants.
+
 ## [1.1.0] - 2026-04-14
 
 ### Added

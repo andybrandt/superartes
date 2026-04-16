@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Superartes is a composable skills library that provides structured development workflows for AI coding agents (Claude Code, Cursor, Codex, OpenCode, Gemini CLI). It enforces discipline through skills that trigger automatically: brainstorming before coding, TDD, systematic debugging, subagent-driven development with two-stage review, and feature branch isolation. Version 1.0.4. Fork of obra/superpowers.
+Superartes is a composable skills library that provides structured development workflows for AI coding agents (Claude Code, Cursor, Codex, OpenCode, Gemini CLI). It enforces discipline through skills that trigger automatically: brainstorming before coding, TDD, systematic debugging, subagent-driven development with two-stage review, and feature branch isolation. Version 1.1.1. Fork of obra/superpowers.
 
 ## Repository Structure
 
@@ -57,6 +57,13 @@ cd tests/claude-code
 cd tests/skill-triggering && ./run-all.sh
 cd tests/explicit-skill-requests && ./run-all.sh
 ```
+
+## Version Files
+
+Version must be updated in all of these files when bumping:
+- `package.json` — `version` field
+- `.claude-plugin/marketplace.json` — `plugins[0].version` field
+- `CLAUDE.md` — version reference in Project Overview paragraph
 
 ## Development Guidelines
 

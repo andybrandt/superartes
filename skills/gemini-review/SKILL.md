@@ -20,19 +20,21 @@ When invoked by another skill (brainstorming, writing-plans), these are availabl
 
 ```dot
 digraph gemini_review {
-    "Check: which gemini" [shape=diamond];
+    "Check: command -v gemini" [shape=diamond];
     "Compose dynamic\nreview prompt" [shape=box];
-    "Run gemini -p\n--approval-mode plan\n-m pro" [shape=box];
+    "Write prompt to\ntemp file (mktemp)" [shape=box];
+    "Run invoke-gemini.sh\n--approval-mode plan\n-m pro" [shape=box];
     "Gemini\nsucceeded?" [shape=diamond];
     "Dispatch Claude subagent\n(reviewer prompt template)" [shape=box];
     "Triage feedback\n(accept/reject/escalate)" [shape=box];
     "Apply changes,\nsummarize to user" [shape=box];
     "Done" [shape=doublecircle];
 
-    "Check: which gemini" -> "Compose dynamic\nreview prompt" [label="found"];
-    "Check: which gemini" -> "Dispatch Claude subagent\n(reviewer prompt template)" [label="not found"];
-    "Compose dynamic\nreview prompt" -> "Run gemini -p\n--approval-mode plan\n-m pro";
-    "Run gemini -p\n--approval-mode plan\n-m pro" -> "Gemini\nsucceeded?";
+    "Check: command -v gemini" -> "Compose dynamic\nreview prompt" [label="found"];
+    "Check: command -v gemini" -> "Dispatch Claude subagent\n(reviewer prompt template)" [label="not found"];
+    "Compose dynamic\nreview prompt" -> "Write prompt to\ntemp file (mktemp)";
+    "Write prompt to\ntemp file (mktemp)" -> "Run invoke-gemini.sh\n--approval-mode plan\n-m pro";
+    "Run invoke-gemini.sh\n--approval-mode plan\n-m pro" -> "Gemini\nsucceeded?";
     "Gemini\nsucceeded?" -> "Triage feedback\n(accept/reject/escalate)" [label="yes"];
     "Gemini\nsucceeded?" -> "Dispatch Claude subagent\n(reviewer prompt template)" [label="no (fallback)"];
     "Dispatch Claude subagent\n(reviewer prompt template)" -> "Triage feedback\n(accept/reject/escalate)";
@@ -43,7 +45,7 @@ digraph gemini_review {
 
 ### Step 1: Check Gemini CLI availability
 
-Run `which gemini` via the Bash tool. If it succeeds, proceed with Gemini review. If it fails, note to user: "Gemini CLI not available - running Claude subagent review instead." and skip to Step 4 (Subagent Fallback).
+Run `command -v gemini` via the Bash tool. If it succeeds, proceed with Gemini review. If it fails, note to user: "Gemini CLI not available - running Claude subagent review instead." and skip to Step 4 (Subagent Fallback).
 
 ### Step 2: Compose the review prompt
 
@@ -67,15 +69,27 @@ Read `review-guidelines.md` in this skill's directory for document-type-specific
 
 ### Step 3: Invoke Gemini CLI
 
-Pass the prompt via heredoc to avoid shell escaping issues:
+Write the prompt to a temporary file, then invoke the wrapper script. This two-step approach avoids shell escaping issues (the prompt is in a file, not a command-line argument) and avoids the pipe operator in the Bash tool call (which triggers Claude Code's "Unhandled node type: pipeline" sandbox prompt on every invocation).
+
+**First Bash call** — write the prompt to a temp file:
 
 ```bash
-cat << 'REVIEW_PROMPT_EOF' | gemini -p "$(cat)" --approval-mode plan -m pro
+PROMPT_FILE="$(mktemp)"
+cat << 'REVIEW_PROMPT_EOF' > "$PROMPT_FILE"
 <your composed prompt here>
 REVIEW_PROMPT_EOF
+echo "$PROMPT_FILE"
 ```
 
-Set the Bash tool timeout to 280 seconds. The heredoc delimiter MUST use single quotes (`'REVIEW_PROMPT_EOF'`) to prevent shell variable expansion.
+The heredoc delimiter MUST use single quotes (`'REVIEW_PROMPT_EOF'`) to prevent shell variable expansion. Capture the echoed path for the next call.
+
+**Second Bash call** — invoke Gemini via the wrapper script:
+
+```bash
+bash /path/to/skills/gemini-review/invoke-gemini.sh "$PROMPT_FILE" --approval-mode plan -m pro
+```
+
+Replace `/path/to/skills/gemini-review/` with the actual skill directory path. Set the Bash tool timeout to 280 seconds. The script handles cleanup of the temp file automatically.
 
 **If Gemini fails** (non-zero exit, timeout, empty output): report the error briefly and fall through to Step 4 (Subagent Fallback).
 
