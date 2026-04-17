@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.1.2] - 2026-04-17
+
+### Fixed
+- **gemini-review permission prompt reduction**: Use Write tool instead of bash heredoc for creating the prompt temp file (eliminates `file_redirect` permission prompt). Inlined `review-guidelines.md` content into SKILL.md (eliminates Read tool permission prompt). Net result: invoking gemini-review now requires only one permission prompt (the `bash:*` for invoke-gemini.sh) instead of three.
+
 ## [1.1.1] - 2026-04-16
 
 ### Fixed

@@ -22,7 +22,7 @@ When invoked by another skill (brainstorming, writing-plans), these are availabl
 digraph gemini_review {
     "Check: command -v gemini" [shape=diamond];
     "Compose dynamic\nreview prompt" [shape=box];
-    "Write prompt to\ntemp file (mktemp)" [shape=box];
+    "Write prompt to\ntemp file (Write tool)" [shape=box];
     "Run invoke-gemini.sh\n--approval-mode plan\n-m pro" [shape=box];
     "Gemini\nsucceeded?" [shape=diamond];
     "Dispatch Claude subagent\n(reviewer prompt template)" [shape=box];
@@ -32,8 +32,8 @@ digraph gemini_review {
 
     "Check: command -v gemini" -> "Compose dynamic\nreview prompt" [label="found"];
     "Check: command -v gemini" -> "Dispatch Claude subagent\n(reviewer prompt template)" [label="not found"];
-    "Compose dynamic\nreview prompt" -> "Write prompt to\ntemp file (mktemp)";
-    "Write prompt to\ntemp file (mktemp)" -> "Run invoke-gemini.sh\n--approval-mode plan\n-m pro";
+    "Compose dynamic\nreview prompt" -> "Write prompt to\ntemp file (Write tool)";
+    "Write prompt to\ntemp file (Write tool)" -> "Run invoke-gemini.sh\n--approval-mode plan\n-m pro";
     "Run invoke-gemini.sh\n--approval-mode plan\n-m pro" -> "Gemini\nsucceeded?";
     "Gemini\nsucceeded?" -> "Triage feedback\n(accept/reject/escalate)" [label="yes"];
     "Gemini\nsucceeded?" -> "Dispatch Claude subagent\n(reviewer prompt template)" [label="no (fallback)"];
@@ -65,31 +65,35 @@ Compose a contextual, tailored review prompt. Do NOT use a rigid template - writ
 - Over-template the expected output format (let Gemini organize its thoughts)
 - Tell Gemini what conclusions to reach
 
-Read `review-guidelines.md` in this skill's directory for document-type-specific review focus areas.
+**Review focus by document type:**
+
+For **spec reviews**, focus on: architectural soundness, completeness, internal consistency, feasibility, YAGNI, DRY, design patterns, and suggestions for better approaches or simplifications.
+
+For **plan reviews**, focus on: spec alignment, task decomposition quality, buildability, completeness of steps, DRY, code quality in snippets, and suggestions for better task ordering or alternative approaches.
+
+**Calibration:** Flag real issues, not style preferences. A missing requirement is an issue. "I'd phrase this differently" is not. A step so vague it can't be acted on is an issue. Minor formatting preferences are not.
+
+**Re-reviews:** When composing a re-review prompt (after changes from a previous cycle), tell the reviewer what changed and why, ask it to focus on the changes rather than re-reviewing everything, and mention which previous feedback points were addressed and which were intentionally declined (with reasons).
 
 ### Step 3: Invoke Gemini CLI
 
 Write the prompt to a temporary file, then invoke the wrapper script. This two-step approach avoids shell escaping issues (the prompt is in a file, not a command-line argument) and avoids the pipe operator in the Bash tool call (which triggers Claude Code's "Unhandled node type: pipeline" sandbox prompt on every invocation).
 
-**First Bash call** — write the prompt to a temp file:
+**First step** — use the Write tool to save the prompt to a temp file:
+
+Write your composed prompt to a temporary file path. Use a path inside the system temp directory to keep the prompt file outside the project tree. The path must work cross-platform:
+- On Unix/macOS: `/tmp/gemini-review-prompt.md`
+- On Windows (Git Bash): use `$TMPDIR` or `/tmp/` (Git Bash maps this appropriately)
+
+Using the Write tool (instead of a Bash heredoc) avoids an additional shell permission prompt per invocation.
+
+**Second step** — invoke Gemini via the wrapper script (Bash tool):
 
 ```bash
-PROMPT_FILE="$(mktemp)"
-cat << 'REVIEW_PROMPT_EOF' > "$PROMPT_FILE"
-<your composed prompt here>
-REVIEW_PROMPT_EOF
-echo "$PROMPT_FILE"
+bash /path/to/skills/gemini-review/invoke-gemini.sh "/tmp/gemini-review-prompt.md" --approval-mode plan -m pro
 ```
 
-The heredoc delimiter MUST use single quotes (`'REVIEW_PROMPT_EOF'`) to prevent shell variable expansion. Capture the echoed path for the next call.
-
-**Second Bash call** — invoke Gemini via the wrapper script:
-
-```bash
-bash /path/to/skills/gemini-review/invoke-gemini.sh "$PROMPT_FILE" --approval-mode plan -m pro
-```
-
-Replace `/path/to/skills/gemini-review/` with the actual skill directory path. Set the Bash tool timeout to 280 seconds. The script handles cleanup of the temp file automatically.
+Replace `/path/to/skills/gemini-review/` with the actual skill directory path, and the prompt file path with the one you used in the Write step. Set the Bash tool timeout to 280 seconds. The script handles cleanup of the temp file automatically.
 
 **If Gemini fails** (non-zero exit, timeout, empty output): report the error briefly and fall through to Step 4 (Subagent Fallback).
 
