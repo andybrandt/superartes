@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.1.3] - 2026-04-18o
+
+### Fixed
+
+- **Incorrect commit messages - skill not used**: Added directive in main SKILL.md to ensure `commit-message` skills is always used whenever AI commits.
+
 ## [1.1.2] - 2026-04-17
 
 ### Fixed

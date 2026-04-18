@@ -73,6 +73,8 @@ digraph skill_flow {
 }
 ```
 
+Whenever you are about to commit anything to a repository use `superartes:commit-message` skill. Never compose commit message without invoking this skill.
+
 ## Red Flags
 
 These thoughts mean STOP—you're rationalizing:
