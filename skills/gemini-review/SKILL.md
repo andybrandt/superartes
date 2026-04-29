@@ -95,6 +95,8 @@ bash /path/to/skills/gemini-review/invoke-gemini.sh "/tmp/gemini-review-prompt.m
 
 Replace `/path/to/skills/gemini-review/` with the actual skill directory path, and the prompt file path with the one you used in the Write step. Set the Bash tool timeout to 280 seconds. The script handles cleanup of the temp file automatically.
 
+Note for CODEX (GPT models): if you are OpenAI's GPT running from within `codex` always run the wrapper script outside the sandbox. Calling `gemini` from within sandbox causes it to ask for re-authentication which fails in non-interactive mode. User will have to confirm & allow the script to run outside the sandbox. Explain to user why you do it this way.
+
 **If Gemini fails** (non-zero exit, timeout, empty output): report the error briefly and fall through to Step 4 (Subagent Fallback).
 
 ### Step 4: Subagent Fallback (when Gemini is unavailable or failed)

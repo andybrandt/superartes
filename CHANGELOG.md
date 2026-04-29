@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.1.4] - 2026-04-30
+
+### Fixed
+
+- **Problem firing Gemini reviews from Codex**: Added instructions for Codex to run review script outside its sandbox always.
+
 ## [1.1.3] - 2026-04-18o
 
 ### Fixed
