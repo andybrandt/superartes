@@ -165,12 +165,17 @@ def validate_marketplace(plugin_manifest: dict[str, Any]) -> None:
 
     source = entry.get("source")
     require(isinstance(source, dict), "Marketplace source must be an object")
-    require(source.get("source") == "local", "Marketplace source must be local")
+    require(source.get("source") == "url", "Marketplace source must be url")
+    require(
+        source.get("url") == "https://github.com/andybrandt/superartes.git",
+        "Marketplace URL must point at the Superartes repository",
+    )
+    require(source.get("ref") == "main", "Marketplace source must pin ref main")
 
-    source_root = resolve_plugin_path(REPO_ROOT, source.get("path", ""), "source.path")
+    source_root = REPO_ROOT.resolve()
     require(
         (source_root / ".codex-plugin" / "plugin.json").is_file(),
-        "Marketplace source path must contain .codex-plugin/plugin.json",
+        "Repository root must contain .codex-plugin/plugin.json",
     )
 
 

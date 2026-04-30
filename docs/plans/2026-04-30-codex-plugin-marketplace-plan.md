@@ -176,12 +176,17 @@ def validate_marketplace(plugin_manifest: dict[str, Any]) -> None:
 
     source = entry.get("source")
     require(isinstance(source, dict), "Marketplace source must be an object")
-    require(source.get("source") == "local", "Marketplace source must be local")
+    require(source.get("source") == "url", "Marketplace source must be url")
+    require(
+        source.get("url") == "https://github.com/andybrandt/superartes.git",
+        "Marketplace URL must point at the Superartes repository",
+    )
+    require(source.get("ref") == "main", "Marketplace source must pin ref main")
 
-    source_root = resolve_plugin_path(REPO_ROOT, source.get("path", ""), "source.path")
+    source_root = REPO_ROOT.resolve()
     require(
         (source_root / ".codex-plugin" / "plugin.json").is_file(),
-        "Marketplace source path must contain .codex-plugin/plugin.json",
+        "Repository root must contain .codex-plugin/plugin.json",
     )
 
 
@@ -250,7 +255,7 @@ Create `.codex-plugin/plugin.json`:
 ```json
 {
   "name": "superartes",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "Composable development workflow skills for AI coding agents.",
   "author": {
     "name": "Andy Brandt"
@@ -445,8 +450,9 @@ Create `.agents/plugins/marketplace.json`:
     {
       "name": "superartes",
       "source": {
-        "source": "local",
-        "path": "./"
+        "source": "url",
+        "url": "https://github.com/andybrandt/superartes.git",
+        "ref": "main"
       },
       "policy": {
         "installation": "AVAILABLE",
@@ -726,7 +732,7 @@ Expected: Codex can invoke `superartes:using-superartes`, and the installed skil
 
 - [ ] **Step 6: Apply fallback only if needed**
 
-If `source.path: "./"` fails but Codex accepts the marketplace file, update `.agents/plugins/marketplace.json` to use a Git-backed root plugin source:
+If the Git-backed root plugin source fails but Codex accepts the marketplace file, update the repository to use a `plugins/superartes/` wrapper matching the layout shown in Codex's examples.
 
 ```json
 {
@@ -738,9 +744,8 @@ If `source.path: "./"` fails but Codex accepts the marketplace file, update `.ag
     {
       "name": "superartes",
       "source": {
-        "source": "url",
-        "url": "https://github.com/andybrandt/superartes.git",
-        "ref": "main"
+        "source": "local",
+        "path": "./plugins/superartes"
       },
       "policy": {
         "installation": "AVAILABLE",
@@ -752,26 +757,15 @@ If `source.path: "./"` fails but Codex accepts the marketplace file, update `.ag
 }
 ```
 
-Then update `tests/codex-plugin/validate-codex-plugin.py` so `validate_marketplace()` accepts either:
+Then update `tests/codex-plugin/validate-codex-plugin.py` so `validate_marketplace()` validates that wrapper path:
 
 ```python
+    require(source.get("source") == "local", "Marketplace source must be local")
+    source_root = resolve_plugin_path(REPO_ROOT, source.get("path", ""), "source.path")
     require(
-        source.get("source") in {"local", "url"},
-        "Marketplace source must be local or url",
+        (source_root / ".codex-plugin" / "plugin.json").is_file(),
+        "Marketplace source path must contain .codex-plugin/plugin.json",
     )
-
-    if source.get("source") == "local":
-        source_root = resolve_plugin_path(REPO_ROOT, source.get("path", ""), "source.path")
-        require(
-            (source_root / ".codex-plugin" / "plugin.json").is_file(),
-            "Marketplace source path must contain .codex-plugin/plugin.json",
-        )
-    else:
-        require(
-            source.get("url") == "https://github.com/andybrandt/superartes.git",
-            "URL marketplace source must point at the Superartes repository",
-        )
-        require(source.get("ref") == "main", "URL marketplace source must pin ref main")
 ```
 
 Run:
@@ -803,4 +797,4 @@ git commit -m "fix Codex marketplace source metadata"
 - [ ] The plan updates all Codex-facing documentation.
 - [ ] The plan includes a local validation test that does not require network access.
 - [ ] The plan includes a live Codex smoke test when CLI/network support allows it.
-- [ ] The plan includes a fallback for root marketplace source path failure.
+- [ ] The plan includes a fallback if Codex rejects Git-backed root plugin sources.

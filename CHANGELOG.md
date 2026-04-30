@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.2.2] - 2026-04-30
+
+### Fixed
+
+- **Codex marketplace plugin visibility**: Changed the self-hosted Codex marketplace entry to use a Git URL source for the root plugin instead of a local `./` source. Codex could clone and register the marketplace, but skipped the plugin entry in `/plugins` when resolving the root plugin as a local source.
+- **Codex plugin validation**: Updated the metadata validator to require the Git URL marketplace source shape so this install failure does not regress.
+
+## [1.2.1] - 2026-04-30
+
+### Added
+
+- **Codex plugin manifest**: Added `.codex-plugin/plugin.json` so Superartes can be installed as a Codex plugin rather than only through native skill symlinks.
+- **Self-hosted Codex marketplace**: Added `.agents/plugins/marketplace.json` so the repository can be registered with `codex plugin marketplace add andybrandt/superartes`.
+- **Codex plugin assets**: Added a composer SVG icon and PNG logo for the Codex plugin install surface.
+- **Codex plugin metadata validation**: Added `tests/codex-plugin/run-tests.sh` and validator coverage for JSON shape, referenced assets, skill paths, marketplace metadata, and version synchronization across plugin manifests.
+
+### Changed
+
+- **Codex installation docs**: Updated README and Codex-specific docs to make plugin marketplace installation the primary Codex install path. Manual clone/symlink instructions now live only in Codex fallback docs for older Codex versions or other tools/models that rely on native skill discovery.
+- **Version sync**: Bumped package and plugin manifests to `1.2.1`, including Claude, Cursor, and Codex metadata.
+
 ## [1.2.0] - 2026-04-30
 
 ### Added

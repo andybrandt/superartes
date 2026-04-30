@@ -43,7 +43,7 @@ Add a first-class Codex plugin manifest at the repository root. It should point 
 ```json
 {
   "name": "superartes",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "Composable development workflow skills for AI coding agents.",
   "author": {
     "name": "Andy Brandt"
@@ -101,8 +101,9 @@ Add a Codex marketplace manifest:
     {
       "name": "superartes",
       "source": {
-        "source": "local",
-        "path": "./"
+        "source": "url",
+        "url": "https://github.com/andybrandt/superartes.git",
+        "ref": "main"
       },
       "policy": {
         "installation": "AVAILABLE",
@@ -114,7 +115,7 @@ Add a Codex marketplace manifest:
 }
 ```
 
-The critical design choice is `source.path: "./"`, which makes the repository root the plugin source. Codex should then find `.codex-plugin/plugin.json` at that source path.
+The critical design choice is using a Git-backed URL source for the plugin. Codex clones this same repository as the marketplace; the plugin entry then points Codex back to the repository root, where `.codex-plugin/plugin.json` lives.
 
 ### `assets/`
 
@@ -150,7 +151,7 @@ Add a small validation script or test that checks:
 - Plugin version matches `package.json`.
 - Referenced `skills`, `composerIcon`, and `logo` paths exist.
 - Marketplace plugin name matches Codex plugin manifest name.
-- Marketplace source path points to a directory containing `.codex-plugin/plugin.json`.
+- Marketplace source points to `https://github.com/andybrandt/superartes.git` at `main`, and the repository root contains `.codex-plugin/plugin.json`.
 
 This can be a shell test using `python3 -m json.tool` or a small Python script. It should be runnable locally without network access.
 
@@ -170,11 +171,11 @@ This mirrors a centralized marketplace repository, but it would duplicate or rel
 
 ## Risks and Open Questions
 
-### Root Source Path Behavior
+### Marketplace Source Behavior
 
-The design assumes Codex accepts `source.path: "./"` for a marketplace plugin whose source is the marketplace repository root. Codex documentation says marketplace paths are relative to the marketplace root, the documented `plugins/` layout is an example rather than a fixed requirement, and plugin directories must stay inside the marketplace root.
+The design uses `source: "url"` rather than `source: "local"` for the plugin entry. This matches the Codex documentation guidance for Git-backed plugin sources and avoids ambiguity around resolving `./` when the marketplace itself is the repository root.
 
-If Codex rejects `./`, the preferred fallback is a Git-backed marketplace entry that points at the same repository root with `source: "url"`. If that also fails, use a shallow `plugins/superartes/` wrapper that copies the plugin payload into the layout shown in Codex's examples.
+If Codex rejects a Git-backed root plugin source, use a shallow `plugins/superartes/` wrapper that copies the plugin payload into the layout shown in Codex's examples.
 
 ### Manifest Schema Drift
 

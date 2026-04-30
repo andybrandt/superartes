@@ -7,8 +7,9 @@
     {
       "name": "superartes",
       "source": {
-        "source": "local",
-        "path": "./"
+        "source": "url",
+        "url": "https://github.com/andybrandt/superartes.git",
+        "ref": "main"
       },
       "policy": {
         "installation": "AVAILABLE",
