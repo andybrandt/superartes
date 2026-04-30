@@ -39,10 +39,22 @@ claude --plugin-dir /path/to/superartes
 
 ### Codex
 
+Register this repository as a Codex plugin marketplace:
+
 ```bash
-git clone https://github.com/andybrandt/superartes.git ~/.codex/superartes
-mkdir -p ~/.agents/skills
-ln -s ~/.codex/superartes/skills ~/.agents/skills/superartes
+codex plugin marketplace add andybrandt/superartes
+```
+
+Then open the plugin directory and install Superartes:
+
+```bash
+/plugins
+```
+
+To update after new commits are pushed:
+
+```bash
+codex plugin marketplace upgrade superartes
 ```
 
 ### OpenCode

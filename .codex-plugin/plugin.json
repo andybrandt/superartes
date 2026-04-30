@@ -1,0 +1,42 @@
+{
+  "name": "superartes",
+  "version": "1.2.1",
+  "description": "Composable development workflow skills for AI coding agents.",
+  "author": {
+    "name": "Andy Brandt"
+  },
+  "homepage": "https://github.com/andybrandt/superartes",
+  "repository": "https://github.com/andybrandt/superartes",
+  "license": "MIT",
+  "keywords": [
+    "brainstorming",
+    "subagent-driven-development",
+    "skills",
+    "planning",
+    "tdd",
+    "debugging",
+    "code-review",
+    "workflow"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Superartes",
+    "shortDescription": "Planning, TDD, debugging, and delivery workflows for coding agents",
+    "longDescription": "Use Superartes to guide agent work through brainstorming, implementation planning, test-driven development, systematic debugging, parallel execution, code review, and finish-the-branch workflows.",
+    "developerName": "Andy Brandt",
+    "category": "Coding",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "I've got an idea for something I'd like to build.",
+      "Let's add a feature to this project."
+    ],
+    "brandColor": "#2563EB",
+    "composerIcon": "./assets/superartes-small.svg",
+    "logo": "./assets/app-icon.png",
+    "screenshots": []
+  }
+}
