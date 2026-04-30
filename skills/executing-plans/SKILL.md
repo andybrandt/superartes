@@ -15,6 +15,11 @@ Load plan, review critically, execute all tasks, report when complete.
 
 ## The Process
 
+### Step 0: Set Up Branch
+1. Invoke `superartes:using-feature-branches`
+2. Create the isolated feature branch from trunk
+3. Do not start implementation on `main` / `master` unless the user explicitly instructs you to do so
+
 ### Step 1: Load and Review Plan
 1. Read plan file
 2. Review critically - identify any questions or concerns about the plan

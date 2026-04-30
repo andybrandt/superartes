@@ -123,6 +123,7 @@ digraph brainstorming {
   - (User preferences for spec location override this default)
 - Use elements-of-style:writing-clearly-and-concisely skill if available
 - Commit the design document to git using `superartes:commit-message` to create appropriate commit message
+- The spec is written and committed on the trunk branch (`main` / `master`). Do NOT create a feature branch in this phase — that happens later, when execution begins (the executor skill calls `superartes:using-feature-branches`).
 
 **Spec Self-Review:**
 After writing the spec document, look at it with fresh eyes:

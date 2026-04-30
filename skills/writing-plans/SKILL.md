@@ -7,13 +7,13 @@ description: Use when you have a spec or requirements for a multi-step task, bef
 
 ## Overview
 
-Write comprehensive implementation plans assuming the engineer has zero context for our codebase and questionable taste. Document everything they need to know: which files to touch for each task, code, testing, docs they might need to check, how to test it. Give them the whole plan as bite-sized tasks. DRY. YAGNI. TDD. Iterative, incremental development. Commit at releasable checkpoints, not after every small step.
+Write comprehensive implementation plans assuming the engineer who will implement them has zero context for our codebase and questionable taste. Document everything they need to know: which files to touch for each task, code, testing, docs they might need to check, how to test it. Give them the whole plan as bite-sized tasks. DRY. YAGNI. TDD. Iterative, incremental development. Commit at releasable checkpoints, not after every small step.
 
 Assume they are a skilled developer, but know almost nothing about our toolset or problem domain. Assume they don't know good test design very well.
 
 **Announce at start:** "I'm using the writing-plans skill to create the implementation plan."
 
-**Context:** This should be run in a dedicated feature branch (created by brainstorming skill).
+**Context:** This skill runs on the trunk branch (`main` / `master`) — the same branch where brainstorming wrote and committed the spec. The plan is also written and committed on trunk. The feature branch is created later, by the executor skill (`superartes:executing-plans` or `superartes:subagent-driven-development`) as its first step. Do not create a branch while writing the plan.
 
 **Save plans to:** `docs/plans/YYYY-MM-DD-<feature-name>.md`
 - (User preferences for plan location override this default)
@@ -152,20 +152,91 @@ Wait for the user's response. If they request changes, make them, re-run self-re
 
 ## Execution Handoff
 
-After the user approves the plan, offer execution choice:
+After the user approves the plan, present this exact menu (consistent first-person voice):
 
-**"Plan complete, saved to `docs/plans/<filename>.md` and committed. Two execution options:**
+> **Plan complete, saved to `docs/plans/<filename>.md` and committed. Three execution options:**
+>
+> **1. Subagent-Driven (recommended)** — I dispatch a fresh subagent per task, review between tasks, fast iteration.
+>
+> **2. Inline Execution** — I execute tasks in this session with checkpoints for review.
+>
+> **3. Handover to a fresh thread** — I print a copy-paste prompt that lets a new session execute the plan with a clean context window.
+>
+> **Which approach?**
 
-**1. Subagent-Driven (recommended)** - I dispatch a fresh subagent per task, review between tasks, fast iteration
+### Choosing between #1/#2 and #3
 
-**2. Inline Execution** - Execute tasks in this session using executing-plans, batch execution with checkpoints
+Option #3 exists because brainstorming and plan-writing often consume a large fraction of the context window — by execution time, the thread may already be summarized or close to it, which raises cost and can degrade focus. A fresh thread driven only by the (now-authoritative) plan document is often crisper and cheaper. The user decides, but you may recommend, using these heuristics:
 
-**Which approach?"**
+- **Lean toward #3 (handover) when:** plan-writing took many turns, summarization has already been triggered this session, OR the plan is fully self-contained (it does not rely on facts learned in chat that aren't written into the plan).
+- **Lean toward #1 or #2 when:** important project state was learned this session and is *not* captured in either the plan or the spec/design documents (undocumented test commands, container quirks, user corrections to your initial assumptions, judgment calls about ambiguous spec areas). A fresh thread would not inherit this context and could make wrong calls.
 
-**If Subagent-Driven chosen:**
-- **REQUIRED SUB-SKILL:** Use superartes:subagent-driven-development
+You cannot precisely measure your own context usage — use turn count and whether a summarization event has occurred as soft signals, not exact metrics.
+
+### If Subagent-Driven chosen
+
+- **REQUIRED SUB-SKILL:** Use `superartes:subagent-driven-development`
 - Fresh subagent per task + two-stage review
 
-**If Inline Execution chosen:**
-- **REQUIRED SUB-SKILL:** Use superartes:executing-plans
+### If Inline Execution chosen
+
+- **REQUIRED SUB-SKILL:** Use `superartes:executing-plans`
 - Batch execution with checkpoints for review
+
+### If Handover chosen
+
+Before generating the prompt, ask the user one follow-up question:
+
+> **Which execution mode should the new thread use — subagent-driven (recommended) or inline?**
+
+Then **print the handover prompt inline in the chat** (do not save it to a file — the user can copy it directly from the chat; some agents provide a copy command such as Claude Code's `/copy`). The prompt MUST contain every item in the checklist below.
+
+**Required content checklist:**
+
+- Absolute path to the plan document
+- Absolute path to the spec document (so the new thread can resolve ambiguity)
+- Trunk branch name (the branch the plan is committed on, typically `main`)
+- Short commit hash containing the plan (so the new thread can verify HEAD includes it before branching)
+- Suggested feature branch name for the executor to create — a descriptive name based on the feature, e.g. `feature/auth-system`
+- Working directory (absolute path)
+- Chosen execution mode (subagent-driven or inline)
+- Name of the required sub-skill to invoke first (`superartes:subagent-driven-development` or `superartes:executing-plans`)
+- Project-specific notes learned this session that are not captured in the plan (e.g. tests run inside a Docker container, language/style constraints, user corrections to early assumptions). If there are none, say so explicitly so the new thread doesn't wonder what's missing.
+- Explicit instruction: **do not re-run brainstorming or writing-plans; do not relitigate design decisions; treat the plan as authoritative**
+
+**Template** (fill in every bracketed placeholder before printing — no `[TBD]` left behind):
+
+```
+You are taking over execution of an approved implementation plan.
+
+Plan:               [absolute path to plan document]
+Spec:               [absolute path to spec document]
+Plan committed on:  [trunk branch, typically `main`] @ [short SHA]
+Working dir:        [absolute path]
+
+Suggested feature branch name: [e.g. `feature/auth-system`]
+
+Execution mode:     [subagent-driven | inline]
+Required sub-skill: superartes:[subagent-driven-development | executing-plans]
+
+Project-specific notes (learned in the originating session,
+may not be fully captured in the plan):
+- [e.g. tests run inside docker container `app` — use `docker compose exec app ...`]
+- [e.g. Python only; type hints and docstrings required]
+- [e.g. user corrected the initial assumption that X — actual approach is Y]
+- [or: "None — the plan is fully self-contained."]
+
+Begin by invoking the required sub-skill above. Its first step will set
+up the feature branch via superartes:using-feature-branches — use the
+suggested branch name unless the user prefers another. Before branching,
+verify that HEAD on the trunk branch includes the plan commit shown above.
+
+A design and implementation plan have already been approved by the user
+(paths above). The brainstorming HARD-GATE is satisfied — do NOT invoke
+superartes:brainstorming. Do NOT re-run superartes:writing-plans. Treat
+the plan as authoritative — do not relitigate design decisions. If a step
+is genuinely ambiguous, consult the spec first; only ask the user if the
+spec is silent too.
+```
+
+After printing the prompt, tell the user: *"Copy the block above into a fresh agent session to begin execution."*

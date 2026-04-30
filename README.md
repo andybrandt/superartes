@@ -1,6 +1,6 @@
 # Superartes
 
-Superartes ("super skills" in Latin) is a composable skills library that provides structured development workflows for AI coding agents (Claude Code, Cursor, Codex, OpenCode, Gemini CLI). It enforces discipline through skills that trigger automatically: brainstorming before coding, TDD, systematic debugging, subagent-driven development with two-stage review, and feature branch isolation.
+Superartes ("super skills" in Latin) is a composable skills library that provides structured development workflows for AI coding agents (Claude Code, Cursor, Codex, OpenCode, Gemini CLI). It enforces discipline through skills that trigger automatically: brainstorming before coding leading to designs & plans, reviews, TDD, systematic debugging, subagent-driven development with two-stage review, and feature branch isolation.
 
 ## How it works
 
@@ -67,21 +67,24 @@ Start a new session and ask for something that should trigger a skill (for examp
 
 ## The Basic Workflow
 
-1. **brainstorming** - Activates before writing code. Refines rough ideas through questions, explores alternatives, presents design in sections for validation. Saves design document.
+The agent walks through a sequence of skills, each triggering automatically at its phase. Spec, plan, and feature branch each sit at known points in the lifecycle:
 
-2. **using-feature-branches** - Activates after design approval. Creates feature branch, runs project setup, verifies clean test baseline.
+1. **brainstorming** — Activates when you describe an idea. Refines it through one-question-at-a-time dialogue, explores 2-3 alternative approaches, then presents the design in chunks short enough to read. The spec is written to `docs/specs/` and committed on the **trunk branch** (`main`/`master`). External review (Gemini CLI when available) and a user review-gate happen before moving on.
 
-3. **writing-plans** - Activates with approved design. Breaks work into bite-sized tasks (2-5 minutes each). Every task has exact file paths, complete code, verification steps. Plans go through external review (via Gemini CLI when available) before user review.
+2. **writing-plans** — Activates with the approved spec. Breaks the work into bite-sized tasks (2-5 minutes each), each with exact file paths, complete code, and verification steps — clear enough for an enthusiastic junior engineer with poor taste, no judgement, and no project context to follow. The plan is saved to `docs/plans/` and committed **on trunk**, next to the spec. External review and user review-gate again.
 
-4. **subagent-driven-development** or **executing-plans** - Activates with plan. Dispatches fresh subagent per task with two-stage review (spec compliance, then code quality), or executes in batches with human checkpoints.
+3. **Execution handoff** — After the plan is approved, you pick one of three execution modes:
+   - **Subagent-driven (recommended)** — a fresh subagent implements each task, with two-stage review (spec compliance, then code quality) running after each. All in this session.
+   - **Inline execution** — all tasks executed in this session with checkpoints for human review.
+   - **Handover to a fresh thread** — the agent prints a copy-paste prompt that lets a new session pick up the plan with a clean context window. Useful when brainstorming and planning have consumed a lot of context.
 
-5. **test-driven-development** - Activates during implementation. Enforces RED-GREEN-REFACTOR: write failing test, watch it fail, write minimal code, watch it pass, commit. Deletes code written before tests.
+4. **using-feature-branches** — The chosen executor's first step. Creates the feature branch from trunk, runs project setup, verifies the test baseline is clean. The branch only exists from this point forward — spec and plan stay on trunk.
 
-6. **requesting-code-review** - Activates between tasks. Reviews against plan, reports issues by severity. Critical issues block progress.
+5. **subagent-driven-development** or **executing-plans** — Carries out the tasks on the new branch. **test-driven-development** drives each task (RED-GREEN-REFACTOR: write failing test, watch it fail, write minimal code, watch it pass). **requesting-code-review** runs at task boundaries, reporting issues by severity. **commit-message** ensures consistent message formatting.
 
-7. **finishing-a-development-branch** - Activates when tasks complete. Verifies tests, presents options (merge/PR/keep/discard).
+6. **finishing-a-development-branch** — Activates when all tasks are done. Verifies tests, presents options (merge / PR / keep / discard).
 
-**The agent checks for relevant skills before any task.** Mandatory workflows, not suggestions.
+**The agent checks for relevant skills before any task.** Mandatory workflows, not suggestions. It's not uncommon for the agent to work autonomously for a couple of hours at a time without deviating from the plan you put together.
 
 ## What's Inside
 

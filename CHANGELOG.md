@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.2.0] - 2026-04-30
+
+### Added
+
+- **Handover to a fresh thread (writing-plans)**: Third execution option in the Execution Handoff. After plan approval the user now picks between (1) subagent-driven execution (recommended), (2) inline execution, or (3) handover — the agent prints a self-contained copy-paste prompt that a fresh session can use to execute the plan with a clean context window. Useful when brainstorming and plan-writing have consumed a large fraction of the original context. The handover prompt template covers plan/spec paths, trunk branch + plan commit SHA, suggested feature branch name, execution mode, required sub-skill, and project-specific notes learned in the originating session.
+- **Decision rubric in Execution Handoff**: Heuristics for when to recommend handover (many turns consumed, summarization triggered, plan is self-contained) vs. staying in-session (significant project state was learned that isn't captured in the plan or spec).
+- **AGENTS.md**: Top-level file mirroring `CLAUDE.md` for agent platforms (Codex, OpenCode, Gemini CLI) that look for `AGENTS.md` rather than `CLAUDE.md`.
+
+### Changed
+
+- **Branch-lifecycle convention made explicit**: The convention — spec on trunk (`main`/`master`), plan on trunk, feature branch created only at execution start (by `using-feature-branches`, called from `executing-plans` or `subagent-driven-development`), branch merged back at finish — is now stated explicitly in `brainstorming`, `writing-plans`, `executing-plans`, and `subagent-driven-development`. Previously this was implicit and contradicted by the wording in some skills.
+- **Execution Handoff section restructured (writing-plans)**: Replaced the prose section with a structured layout — menu, decision rubric, per-option subsections, required-content checklist, and fillable handover prompt template. Voice unified to first-person across all three options.
+- **README workflow walkthrough**: Rewrote the "Basic Workflow" section to reflect the corrected branch convention and to introduce the three execution choices.
+- **README tagline**: Opening paragraph now mentions "designs & plans, reviews" alongside the existing TDD/debugging/subagent-driven keywords.
+- **.gitignore cleanup**: Removed stale local scratch entries `inspo` and `triage/`, while keeping dependency directories ignored.
+
+### Fixed
+
+- **writing-plans Context line wrongly attributed branch creation to brainstorming**: The skill said "This should be run in a dedicated feature branch (created by brainstorming skill)" — but brainstorming has never invoked `using-feature-branches`. Corrected to state that writing-plans runs on trunk and the feature branch is created later, by the executor skill.
+- **Phantom integration claim in using-feature-branches**: The "Called by:" list included "**brainstorming** (Phase 4) - REQUIRED when design is approved..." — but brainstorming has no Phase 4 and never invokes using-feature-branches. Removed.
+- **Stale version references in CLAUDE.md and AGENTS.md**: The Project Overview paragraph in both files said "Version 1.1.2" despite the plugin being at 1.1.3 and 1.1.4 in package.json/marketplace.json. Brought into sync at 1.2.0.
+
+### Removed
+
+- **CODE_OF_CONDUCT.md**: Legacy file from upstream fork; not maintained.
+- **RELEASE-NOTES.md**: Superseded by this `CHANGELOG.md`.
+
 ## [1.1.4] - 2026-04-30
 
 ### Fixed

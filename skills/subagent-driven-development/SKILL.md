@@ -61,11 +61,13 @@ digraph process {
         "Mark task complete in TodoWrite" [shape=box];
     }
 
+    "Use superartes:using-feature-branches to create isolated branch" [shape=box style=filled fillcolor=lightblue];
     "Read plan, extract all tasks with full text, note context, create TodoWrite" [shape=box];
     "More tasks remain?" [shape=diamond];
     "Dispatch final code reviewer subagent for entire implementation" [shape=box];
     "Use superartes:finishing-a-development-branch" [shape=box style=filled fillcolor=lightgreen];
 
+    "Use superartes:using-feature-branches to create isolated branch" -> "Read plan, extract all tasks with full text, note context, create TodoWrite";
     "Read plan, extract all tasks with full text, note context, create TodoWrite" -> "Dispatch implementer subagent (./implementer-prompt.md)";
     "Dispatch implementer subagent (./implementer-prompt.md)" -> "Implementer subagent asks questions?";
     "Implementer subagent asks questions?" -> "Answer questions, provide context" [label="yes"];
@@ -87,6 +89,10 @@ digraph process {
     "Dispatch final code reviewer subagent for entire implementation" -> "Use superartes:finishing-a-development-branch";
 }
 ```
+
+### Step 0: Set Up Branch
+
+Before reading or executing the plan, invoke `superartes:using-feature-branches` to create the isolated feature branch from trunk. Do not start implementation on `main` / `master` unless the user explicitly instructs you to do so.
 
 ## Model Selection
 
