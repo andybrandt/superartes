@@ -1,6 +1,6 @@
 # Superartes
 
-Superartes ("super skills" in Latin) is a composable skills library that provides structured development workflows for AI coding agents (Claude Code, Cursor, Codex, OpenCode, Gemini CLI). It enforces discipline through skills that trigger automatically: brainstorming before coding leading to designs & plans, reviews, TDD, systematic debugging, subagent-driven development with two-stage review, and feature branch isolation.
+Superartes ("super skills" in Latin) is a composable skills library that provides structured development workflows for AI coding agents (primarily Claude Code, Cursor, and OpenAI's Codex). It enforces discipline through skills that trigger automatically: brainstorming before coding leading to designs & plans, reviews, TDD, systematic debugging, subagent-driven development with two-stage review, and feature branch isolation.
 
 ## How it works
 
@@ -18,7 +18,7 @@ There's a bunch more to it, but that's the core of the system. And because the s
 
 ### Claude Code
 
-Register this as a marketplace, then install:
+Register this repository as a marketplace, then install:
 
 ```bash
 /plugin marketplace add andybrandt/superartes
@@ -59,6 +59,8 @@ codex plugin marketplace upgrade superartes
 
 ### OpenCode
 
+*Caveat: Superartes is not tested with OpenCode. No guarantees it will work.*
+
 Add to your `opencode.json`:
 
 ```json
@@ -68,6 +70,8 @@ Add to your `opencode.json`:
 ```
 
 ### Gemini CLI
+
+*Caveat: Superartes is not tested with Gemini CLI. No guarantees it will work. In fact, since it uses Gemini CLI as reviewier it is likely it will not work exactly right.*
 
 ```bash
 gemini extensions install https://github.com/andybrandt/superartes
@@ -81,9 +85,9 @@ Start a new session and ask for something that should trigger a skill (for examp
 
 The agent walks through a sequence of skills, each triggering automatically at its phase. Spec, plan, and feature branch each sit at known points in the lifecycle:
 
-1. **brainstorming** — Activates when you describe an idea. Refines it through one-question-at-a-time dialogue, explores 2-3 alternative approaches, then presents the design in chunks short enough to read. The spec is written to `docs/specs/` and committed on the **trunk branch** (`main`/`master`). External review (Gemini CLI when available) and a user review-gate happen before moving on.
+1. **brainstorming** — Activates when you describe an idea or openly state that you begin brainstorming sessions. The AI will refine your idea / concept through one-question-at-a-time dialogue, explore 2-3 alternative approaches, then present the design in chunks short enough to read. The resulting specification is then written to `docs/specs/` and committed on the **trunk branch** (`main`/`master`). External review (Gemini CLI when available or a subagent if now) and a user review-gate happen before moving on.
 
-2. **writing-plans** — Activates with the approved spec. Breaks the work into bite-sized tasks (2-5 minutes each), each with exact file paths, complete code, and verification steps — clear enough for an enthusiastic junior engineer with poor taste, no judgement, and no project context to follow. The plan is saved to `docs/plans/` and committed **on trunk**, next to the spec. External review and user review-gate again.
+2. **writing-plans** — Activates with the approved spec. Breaks the work into bite-sized tasks (2-5 minutes each), each with exact file paths, complete code, and verification steps — clear enough for an enthusiastic junior engineer with poor taste, no judgement, and no project context to follow. The plan is saved to `docs/plans/` and committed **on trunk**, next to the spec. External review by Gemini (or a subagent if Gemini is not available) and user review-gate again.
 
 3. **Execution handoff** — After the plan is approved, you pick one of three execution modes:
    - **Subagent-driven (recommended)** — a fresh subagent implements each task, with two-stage review (spec compliance, then code quality) running after each. All in this session.
@@ -149,19 +153,13 @@ Some skills integrate with external tools when available. They are not required 
 - **Commit at releasable checkpoints**: Replaced the "frequent commits" philosophy with a policy of committing only at releasable checkpoints.
 - **Simplified doc paths**: Default paths changed from `docs/superpowers/specs/` and `docs/superpowers/plans/` to `docs/specs/` and `docs/plans/`.
 - **Commit message skill**: Bundled `commit-message` skill for consistent commit message formatting across all artifacts (code, design docs, plans).
+- **Asking Gemini for reviews**: Both spec and plan documents are reviewed by Gemini automatically (if `gemini` CLI is installed/available).
+- **Using Google Stitch for UX/UI design**: If [Google Stitch MCP](https://stitch.withgoogle.com/docs/mcp/) is installed it will be automatically used for UI/UX design work.
 - **Controller-only commits**: In subagent-driven development, only the main agent commits — after reviews pass. Subagents focus on implementation.
 
 ## Attribution
 
-Superartes is a fork of [superpowers](https://github.com/obra/superpowers) by [Jesse Vincent](https://blog.fsck.com) and the team at [Prime Radiant](https://primeradiant.com). The name "superartes" is Latin for "super skills" — chosen to avoid marketplace name collision with the original while preserving the spirit. If you find this useful, consider [sponsoring Jesse's open source work](https://github.com/sponsors/obra).
-
-For the original superpowers community, join the [Discord](https://discord.gg/Jd8Vphy9jq).
-
-## Updating
-
-```bash
-/plugin marketplace update superartes
-```
+Superartes is a fork of [superpowers](https://github.com/obra/superpowers) by [Jesse Vincent](https://blog.fsck.com) and the team at [Prime Radiant](https://primeradiant.com). The name "Super Artes" is Latin for "super skills" — chosen to avoid marketplace name collision with the original while preserving the spirit. If you find this work useful, consider [sponsoring Jesse's open source work](https://github.com/sponsors/obra).
 
 ## License
 
