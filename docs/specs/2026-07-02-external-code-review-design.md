@@ -39,7 +39,7 @@ Rationale: the user requires both commit-scoped review *and* project context. Sc
 **Because scope is enforced by the prompt rather than a CLI flag, the skill must be strict about it** (otherwise Codex may read current files that include unrelated uncommitted changes, or review the wrong range):
 
 - **Resolve explicit `BASE_SHA` and `HEAD_SHA`** for the range before composing the prompt; abort if the range is empty (`git diff --quiet BASE..HEAD` → "no committed changes to review").
-- **Check the working tree.** If it is dirty, the prompt must explicitly tell the reviewer to review only `BASE..HEAD` and ignore any uncommitted changes. (We do not hard-require a clean tree — WIP is legitimate — but we make the scope unambiguous.)
+- **Check the working tree for *overlapping* dirt (targeted policy).** Compute the intersection of the files in `BASE..HEAD` (`git diff --name-only "$BASE_SHA".."$HEAD_SHA"`) with the currently uncommitted-modified tracked files (`git status --porcelain`, staged + unstaged). If that intersection is **non-empty**, stop and tell the user which files are both reviewed and locally modified, and to commit or `git stash` them first — because the reviewer would see on-disk content that differs from the committed range. If the intersection is **empty** (unrelated WIP such as a stray config file), proceed normally. Untracked new files cannot overlap a committed range, so they never block. The prompt still tells the reviewer to review only `BASE..HEAD` and ignore uncommitted changes as a second line of defense.
 - **Put the exact commands in the prompt**, e.g. `git diff --stat BASE..HEAD` and `git diff --find-renames BASE..HEAD`, and give the resolved SHAs.
 - **Require the reviewer to state the exact range it reviewed** at the top of its output, so scope drift is visible.
 
@@ -117,7 +117,7 @@ No supporting files: the wrapper (`invoke-codex.sh`) is shared and lives in `ski
 2. **Preflight & resolve scope** —
    - Resolve explicit `BASE_SHA` and `HEAD_SHA` for the range (e.g. feature branch: `BASE_SHA=$(git merge-base HEAD <trunk>)`, `HEAD_SHA=$(git rev-parse HEAD)`; single commit: `BASE_SHA=<sha>~1`, `HEAD_SHA=<sha>`).
    - Abort if empty: `git diff --quiet "$BASE_SHA".."$HEAD_SHA"` → report "no committed changes to review" and stop.
-   - Note working-tree state (`git status --porcelain`); if dirty, the prompt must scope strictly to `BASE..HEAD` and tell the reviewer to ignore uncommitted changes.
+   - **Overlap check (targeted dirty-tree policy):** intersect `git diff --name-only "$BASE_SHA".."$HEAD_SHA"` with the uncommitted-modified tracked files from `git status --porcelain`. If non-empty, stop and ask the user to commit/stash those files (the reviewer would otherwise see on-disk content differing from the committed range). If empty, proceed. The prompt still scopes strictly to `BASE..HEAD` as a backstop.
 3. **Compose review instructions** — write a tailored prompt to a `mktemp` file (`mktemp "${TMPDIR:-/tmp}/external-code-review-prompt.XXXXXX"`) that:
    - (a) gives the resolved `BASE_SHA`/`HEAD_SHA` and the **exact commands** to inspect the range: `git diff --stat "$BASE_SHA".."$HEAD_SHA"` and `git diff --find-renames "$BASE_SHA".."$HEAD_SHA"`;
    - (b) instructs the reviewer to review **only** that range and ignore unrelated/uncommitted code, and to **state the exact range it reviewed** at the top of its output;
