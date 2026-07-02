@@ -17,6 +17,8 @@ Do NOT invoke any implementation skill, write any code, scaffold any project, or
 
 Every project goes through this process. A todo list, a single-function utility, a config change — all of them. "Simple" projects are where unexamined assumptions cause the most wasted work. The design can be short (a few sentences for truly simple projects), but you MUST present it and get approval.
 
+However, if you consider the request / change to be indeed too simple to go through the whole spec & plan process you have to first ask user for permission with justification to skip said process. However, even then you must use the `superartes:commit-message` skill for every commit. 
+
 ## Checklist
 
 You MUST create a task for each of these items and complete them in order:
@@ -28,7 +30,7 @@ You MUST create a task for each of these items and complete them in order:
 5. **Present design** — in sections scaled to their complexity, get user approval after each section
 6. **Write design doc** — save to `docs/specs/YYYY-MM-DD-<topic>-design.md` and commit it
 7. **Spec self-review** — quick inline check for placeholders, contradictions, ambiguity, scope (see below)
-8. **External review** — invoke `superartes:gemini-review` with document type "spec"
+8. **External review** — invoke `superartes:external-review` with document type "spec"
 9. **User reviews written spec** — ask user to review the spec file before proceeding
 10. **Transition to implementation** — invoke writing-plans skill to create implementation plan
 
@@ -48,7 +50,7 @@ digraph brainstorming {
     "User approves design?" [shape=diamond];
     "Write design doc" [shape=box];
     "Spec self-review\n(fix inline)" [shape=box];
-    "External review\n(superartes:gemini-review)" [shape=box];
+    "External review\n(superartes:external-review)" [shape=box];
     "User reviews spec?" [shape=diamond];
     "Invoke writing-plans skill" [shape=doublecircle];
 
@@ -67,8 +69,8 @@ digraph brainstorming {
     "User approves design?" -> "Present design sections" [label="no, revise"];
     "User approves design?" -> "Write design doc" [label="yes"];
     "Write design doc" -> "Spec self-review\n(fix inline)";
-    "Spec self-review\n(fix inline)" -> "External review\n(superartes:gemini-review)";
-    "External review\n(superartes:gemini-review)" -> "User reviews spec?";
+    "Spec self-review\n(fix inline)" -> "External review\n(superartes:external-review)";
+    "External review\n(superartes:external-review)" -> "User reviews spec?";
     "User reviews spec?" -> "Write design doc" [label="changes requested"];
     "User reviews spec?" -> "Invoke writing-plans skill" [label="approved"];
 }

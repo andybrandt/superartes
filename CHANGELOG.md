@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.3.0] - 2026-07-02
+
+### Changed
+
+- **External review switched from Gemini CLI to Codex CLI**: The `gemini-review` skill was renamed to `external-review` and now drives [Codex CLI](https://developers.openai.com/codex/) (`codex exec`) as the default external reviewer instead of Gemini CLI. The Claude subagent fallback (used when no external CLI is available) is unchanged. Callers `brainstorming` and `writing-plans` now invoke `superartes:external-review`.
+  - **Why Gemini was dropped**: the `gemini` CLI command was deprecated for private/consumer accounts and stopped working in headless mode, and its intended replacement (Antigravity CLI) has no non-interactive mode, making it unusable as an automated reviewer. [Announcementi](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/). 
+  - Codex is invoked read-only (`--sandbox read-only`) with `--output-last-message` to capture just the final review text (chosen over `--json`, which emits a JSONL event stream that would need parsing). Authentication and model configuration are the user's responsibility — the plugin does not attempt to resolve Codex auth. If the host sandboxes Bash without network access, the wrapper must be run outside the sandbox so Codex can reach its provider.
+  - The wrapper script `invoke-gemini.sh` was renamed to `invoke-codex.sh` and now feeds the prompt to `codex exec -` via stdin (still avoiding shell-escaping and the Bash "Unhandled node type: pipeline" sandbox prompt).
+- **Commit attribution reversed — commits now record model and session (`commit-message`)**: The prior policy of no AI attribution (no co-author trailer) is reversed. Before composing a message the agent runs an explicit attribution check, then appends a footer trailer to every commit: `Model:` (the exact model identifier, e.g. `claude-opus-4-8[1m]`; always emitted), `Session:` (the platform's resumable session id, local transcript id, or thread id — under Claude Code the local UUID accepted by `claude --resume`, found as the newest `~/.claude/projects/<project-dir>/<uuid>.jsonl`), and `Session-URL:` (a browser/share URL for the exact thread — e.g. a `claude.ai/code` or Codex thread URL — included only when the platform actually exposes one, never invented). This lets a commit be traced back to the exact model and thread that produced it and reopened from the CLI or browser. The `Co-Authored-By:` trailer is intentionally dropped — the `Model` line supersedes it. The scheme is platform-neutral: Codex, Cursor, Gemini, and OpenCode emit `Model` plus their own session identifier and URL when available.
+
 ## [1.2.2] - 2026-04-30
 
 ### Fixed

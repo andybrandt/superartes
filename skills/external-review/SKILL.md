@@ -1,11 +1,11 @@
 ---
-name: gemini-review
-description: Use when a design spec, implementation plan, or other document needs independent external review - runs Gemini CLI review with Claude subagent fallback, or when the user requests a Gemini review or second opinion on a document
+name: external-review
+description: Use when a design spec, implementation plan, or other document needs independent external review - runs an external AI CLI (Codex) review with Claude subagent fallback, or when the user requests an external review or second opinion on a document
 ---
 
 # External Document Review
 
-Review a design spec, an implementation plan or other document by invoking Gemini CLI in headless, read-only mode. Falls back to a Claude subagent review when Gemini CLI is not available.
+Review a design spec, an implementation plan or other document by invoking an external AI CLI in headless, read-only mode. The default external reviewer is [Codex CLI](https://developers.openai.com/codex/) (`codex exec`). Falls back to a Claude subagent review when the external CLI is not available.
 
 ## Inputs
 
@@ -19,33 +19,33 @@ When invoked by another skill (brainstorming, writing-plans), these are availabl
 ## Process
 
 ```dot
-digraph gemini_review {
-    "Check: command -v gemini" [shape=diamond];
+digraph external_review {
+    "Check: command -v codex" [shape=diamond];
     "Compose dynamic\nreview prompt" [shape=box];
     "Write prompt to\ntemp file (Write tool)" [shape=box];
-    "Run invoke-gemini.sh\n--approval-mode plan\n-m pro" [shape=box];
-    "Gemini\nsucceeded?" [shape=diamond];
+    "Run invoke-codex.sh\n-s read-only\n-o output-file" [shape=box];
+    "Codex\nsucceeded?" [shape=diamond];
     "Dispatch Claude subagent\n(reviewer prompt template)" [shape=box];
     "Triage feedback\n(accept/reject/escalate)" [shape=box];
     "Apply changes,\nsummarize to user" [shape=box];
     "Done" [shape=doublecircle];
 
-    "Check: command -v gemini" -> "Compose dynamic\nreview prompt" [label="found"];
-    "Check: command -v gemini" -> "Dispatch Claude subagent\n(reviewer prompt template)" [label="not found"];
+    "Check: command -v codex" -> "Compose dynamic\nreview prompt" [label="found"];
+    "Check: command -v codex" -> "Dispatch Claude subagent\n(reviewer prompt template)" [label="not found"];
     "Compose dynamic\nreview prompt" -> "Write prompt to\ntemp file (Write tool)";
-    "Write prompt to\ntemp file (Write tool)" -> "Run invoke-gemini.sh\n--approval-mode plan\n-m pro";
-    "Run invoke-gemini.sh\n--approval-mode plan\n-m pro" -> "Gemini\nsucceeded?";
-    "Gemini\nsucceeded?" -> "Triage feedback\n(accept/reject/escalate)" [label="yes"];
-    "Gemini\nsucceeded?" -> "Dispatch Claude subagent\n(reviewer prompt template)" [label="no (fallback)"];
+    "Write prompt to\ntemp file (Write tool)" -> "Run invoke-codex.sh\n-s read-only\n-o output-file";
+    "Run invoke-codex.sh\n-s read-only\n-o output-file" -> "Codex\nsucceeded?";
+    "Codex\nsucceeded?" -> "Triage feedback\n(accept/reject/escalate)" [label="yes"];
+    "Codex\nsucceeded?" -> "Dispatch Claude subagent\n(reviewer prompt template)" [label="no (fallback)"];
     "Dispatch Claude subagent\n(reviewer prompt template)" -> "Triage feedback\n(accept/reject/escalate)";
     "Triage feedback\n(accept/reject/escalate)" -> "Apply changes,\nsummarize to user";
     "Apply changes,\nsummarize to user" -> "Done";
 }
 ```
 
-### Step 1: Check Gemini CLI availability
+### Step 1: Check external CLI availability
 
-Run `command -v gemini` via the Bash tool. If it succeeds, proceed with Gemini review. If it fails, note to user: "Gemini CLI not available - running Claude subagent review instead." and skip to Step 4 (Subagent Fallback).
+Run `command -v codex` via the Bash tool. If it succeeds, proceed with the Codex review. If it fails, note to user: "Codex CLI not available - running Claude subagent review instead." and skip to Step 4 (Subagent Fallback).
 
 ### Step 2: Compose the review prompt
 
@@ -53,17 +53,17 @@ Compose a contextual, tailored review prompt. Do NOT use a rigid template - writ
 
 **Include in the prompt:**
 
-1. **Role & context** - tell Gemini what project this is, what the document is, and where it fits in the bigger picture as much as is needed for a good review
-2. **Documents** - reference the primary document to be reviewed and any related context docs using `@path/to/file` syntax
+1. **Role & context** - tell the reviewer what project this is, what the document is, and where it fits in the bigger picture as much as is needed for a good review
+2. **Documents** - reference the primary document to be reviewed and any related context docs by their file paths, and tell the reviewer it may open and read them
 3. **Review focus** - what matters most for this particular document (architectural soundness? spec coverage? consistency with parent design? technical merit? use of well known design patterns?)
 4. **Situational context** - if this is a re-review, explain what changed and why since the last cycle
-5. **Permission to explore** - tell Gemini it has read-only access to the whole project and should look up files if needed
+5. **Permission to explore** - tell the reviewer it has read-only access to the whole project and should look up files if needed
 6. **Collaborative framing** - ask for issues, suggestions, improvements, and alternative ideas - not just error-finding
 
 **The prompt must NOT:**
 - Limit response length (this kills depth and defeats the purpose)
-- Over-template the expected output format (let Gemini organize its thoughts)
-- Tell Gemini what conclusions to reach
+- Over-template the expected output format (let the reviewer organize its thoughts)
+- Tell the reviewer what conclusions to reach
 
 **Review focus by document type:**
 
@@ -75,31 +75,39 @@ For **plan reviews**, focus on: spec alignment, task decomposition quality, buil
 
 **Re-reviews:** When composing a re-review prompt (after changes from a previous cycle), tell the reviewer what changed and why, ask it to focus on the changes rather than re-reviewing everything, and mention which previous feedback points were addressed and which were intentionally declined (with reasons).
 
-### Step 3: Invoke Gemini CLI
+### Step 3: Invoke Codex CLI
 
-Write the prompt to a temporary file, then invoke the wrapper script. This two-step approach avoids shell escaping issues (the prompt is in a file, not a command-line argument) and avoids the pipe operator in the Bash tool call (which triggers Claude Code's "Unhandled node type: pipeline" sandbox prompt on every invocation).
+Write the prompt to a temporary file, then invoke the wrapper script. This two-step approach avoids shell escaping issues (the prompt is in a file fed to Codex via stdin, not a command-line argument) and avoids the pipe operator in the Bash tool call (which triggers Claude Code's "Unhandled node type: pipeline" sandbox prompt on every invocation).
 
 **First step** — use the Write tool to save the prompt to a temp file:
 
 Write your composed prompt to a temporary file path. Use a path inside the system temp directory to keep the prompt file outside the project tree. The path must work cross-platform:
-- On Unix/macOS: `/tmp/gemini-review-prompt.md`
+- On Unix/macOS: `/tmp/external-review-prompt.md`
 - On Windows (Git Bash): use `$TMPDIR` or `/tmp/` (Git Bash maps this appropriately)
 
 Using the Write tool (instead of a Bash heredoc) avoids an additional shell permission prompt per invocation.
 
-**Second step** — invoke Gemini via the wrapper script (Bash tool):
+**Second step** — invoke Codex via the wrapper script (Bash tool):
 
 ```bash
-bash /path/to/skills/gemini-review/invoke-gemini.sh "/tmp/gemini-review-prompt.md" --approval-mode plan -m pro
+bash /path/to/skills/external-review/invoke-codex.sh "/tmp/external-review-prompt.md" -s read-only --skip-git-repo-check -o "/tmp/external-review-output.md"
 ```
 
-Replace `/path/to/skills/gemini-review/` with the actual skill directory path, and the prompt file path with the one you used in the Write step. Set the Bash tool timeout to 280 seconds. The script handles cleanup of the temp file automatically.
+Replace `/path/to/skills/external-review/` with the actual skill directory path, and the temp paths with the ones you used. Set the Bash tool timeout to 280 seconds. The script feeds the prompt to `codex exec` via stdin and cleans up the prompt file automatically.
 
-Note for CODEX (GPT models): if you are OpenAI's GPT running from within `codex` always run the wrapper script outside the sandbox. Calling `gemini` from within sandbox causes it to ask for re-authentication which fails in non-interactive mode. User will have to confirm & allow the script to run outside the sandbox. Explain to user why you do it this way.
+**Why these flags:**
+- `-s read-only` (`--sandbox read-only`) — the review must never modify files; read-only is the safe sandbox for a critique.
+- `--skip-git-repo-check` — lets the review run even when the project is not a git repository.
+- `-o <file>` (`--output-last-message`) — writes only Codex's final review message to the given file. This is preferred over `--json` (a JSONL event stream that would need parsing) — read the output file with the Read tool to get the clean review text.
+- `-m <model>` is optional. Codex uses the model configured by the user; do not force one unless the user asks. Authentication and model configuration are the user's responsibility, not this skill's.
 
-**If Gemini fails** (non-zero exit, timeout, empty output): report the error briefly and fall through to Step 4 (Subagent Fallback).
+**Sandbox / network note:** Codex needs network access to reach its model provider. If your host environment sandboxes the Bash tool without network access (as some Claude Code and Codex sandbox configurations do), the wrapper must run outside that sandbox — the user will have to confirm and allow it. Explain to the user why this is necessary. Resolving Codex authentication itself is out of scope: the user is responsible for preparing `codex` to run headlessly.
 
-### Step 4: Subagent Fallback (when Gemini is unavailable or failed)
+**After the run:** read the output file (e.g. `/tmp/external-review-output.md`) with the Read tool to obtain the review.
+
+**If Codex fails** (non-zero exit, timeout, empty output file): report the error briefly and fall through to Step 4 (Subagent Fallback).
+
+### Step 4: Subagent Fallback (when the external CLI is unavailable or failed)
 
 Dispatch a Claude subagent using the existing reviewer prompt templates:
 - For spec reviews: read `skills/brainstorming/spec-document-reviewer-prompt.md` and use its prompt template
@@ -110,7 +118,7 @@ Substitute `[SPEC_FILE_PATH]` and `[PLAN_FILE_PATH]` with the actual file paths.
 
 ### Step 5: Triage the feedback
 
-Read the reviewer's feedback (whether from Gemini or subagent) and categorize each point:
+Read the reviewer's feedback (whether from Codex or subagent) and categorize each point:
 
 | Bucket | Criteria | Action |
 |--------|----------|--------|
@@ -123,7 +131,7 @@ Read the reviewer's feedback (whether from Gemini or subagent) and categorize ea
 Present a brief summary to the user:
 
 ```
-[Gemini/Subagent] review processed:
+[Codex/Subagent] review processed:
 - Applied (N): [brief description of each change]
 - Skipped (N): [brief reason for each]
 - Your input needed (N): [tradeoff + your recommendation for each]

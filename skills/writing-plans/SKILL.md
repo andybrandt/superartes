@@ -137,7 +137,7 @@ If you find issues, fix them inline. No need to re-review — just fix and move 
 
 ## External Review
 
-After self-review, invoke `superartes:gemini-review` with:
+After self-review, invoke `superartes:external-review` with:
 - Document type: "plan"
 - The plan document path
 - The spec document path (for reference)

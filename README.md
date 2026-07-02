@@ -71,7 +71,7 @@ Add to your `opencode.json`:
 
 ### Gemini CLI
 
-*Caveat: Superartes is not tested with Gemini CLI. No guarantees it will work. In fact, since it uses Gemini CLI as reviewier it is likely it will not work exactly right.*
+*Caveat: Superartes is not tested with Gemini CLI and there are no guarantees it will work. Note also that Gemini CLI is no longer used as the external reviewer — reviews now run through Codex CLI (see the [Skills Library](#skills-library)).*
 
 ```bash
 gemini extensions install https://github.com/andybrandt/superartes
@@ -85,9 +85,9 @@ Start a new session and ask for something that should trigger a skill (for examp
 
 The agent walks through a sequence of skills, each triggering automatically at its phase. Spec, plan, and feature branch each sit at known points in the lifecycle:
 
-1. **brainstorming** — Activates when you describe an idea or openly state that you begin brainstorming sessions. The AI will refine your idea / concept through one-question-at-a-time dialogue, explore 2-3 alternative approaches, then present the design in chunks short enough to read. The resulting specification is then written to `docs/specs/` and committed on the **trunk branch** (`main`/`master`). External review (Gemini CLI when available or a subagent if now) and a user review-gate happen before moving on.
+1. **brainstorming** — Activates when you describe an idea or openly state that you begin brainstorming sessions. The AI will refine your idea / concept through one-question-at-a-time dialogue, explore 2-3 alternative approaches, then present the design in chunks short enough to read. The resulting specification is then written to `docs/specs/` and committed on the **trunk branch** (`main`/`master`). External review (Codex CLI when available, or a Claude subagent if not) and a user review-gate happen before moving on.
 
-2. **writing-plans** — Activates with the approved spec. Breaks the work into bite-sized tasks (2-5 minutes each), each with exact file paths, complete code, and verification steps — clear enough for an enthusiastic junior engineer with poor taste, no judgement, and no project context to follow. The plan is saved to `docs/plans/` and committed **on trunk**, next to the spec. External review by Gemini (or a subagent if Gemini is not available) and user review-gate again.
+2. **writing-plans** — Activates with the approved spec. Breaks the work into bite-sized tasks (2-5 minutes each), each with exact file paths, complete code, and verification steps — clear enough for an enthusiastic junior engineer with poor taste, no judgement, and no project context to follow. The plan is saved to `docs/plans/` and committed **on trunk**, next to the spec. External review by Codex (or a Claude subagent if Codex is not available) and user review-gate again.
 
 3. **Execution handoff** — After the plan is approved, you pick one of three execution modes:
    - **Subagent-driven (recommended)** — a fresh subagent implements each task, with two-stage review (spec compliance, then code quality) running after each. All in this session.
@@ -124,7 +124,7 @@ The agent walks through a sequence of skills, each triggering automatically at i
 - **using-feature-branches** - Feature branch isolation
 - **finishing-a-development-branch** - Merge/PR decision workflow
 - **subagent-driven-development** - Fast iteration with two-stage review (spec compliance, then code quality)
-- **gemini-review** - External document review via [Gemini CLI](https://github.com/google-gemini/gemini-cli) with Claude subagent fallback
+- **external-review** - Independent external document review via [Codex CLI](https://developers.openai.com/codex/) with Claude subagent fallback
 - **commit-message** - Consistent commit message formatting
 
 **Meta**
@@ -138,7 +138,7 @@ Some skills integrate with external tools when available. They are not required 
 | Tool | Skill | Purpose |
 |------|-------|---------|
 | [Google Stitch MCP](https://stitch.withgoogle.com/docs/mcp/) | using-stitch, brainstorming | AI-powered UI/UX design generation, iteration, and preview |
-| [Gemini CLI](https://github.com/google-gemini/gemini-cli) | gemini-review, brainstorming, writing-plans | Independent external review of design specs and implementation plans by a second AI model |
+| [Codex CLI](https://developers.openai.com/codex/) | external-review, brainstorming, writing-plans | Independent external review of design specs and implementation plans by a second AI model |
 
 ## Philosophy
 
@@ -153,7 +153,8 @@ Some skills integrate with external tools when available. They are not required 
 - **Commit at releasable checkpoints**: Replaced the "frequent commits" philosophy with a policy of committing only at releasable checkpoints.
 - **Simplified doc paths**: Default paths changed from `docs/superpowers/specs/` and `docs/superpowers/plans/` to `docs/specs/` and `docs/plans/`.
 - **Commit message skill**: Bundled `commit-message` skill for consistent commit message formatting across all artifacts (code, design docs, plans).
-- **Asking Gemini for reviews**: Both spec and plan documents are reviewed by Gemini automatically (if `gemini` CLI is installed/available).
+- **AI attribution in commits**: The `commit-message` skill records which model and session produced each commit — a `Model:`/`Session:`/`Session-URL:` footer trailer (session id and URL included only when the platform exposes them), replacing the conventional `Co-Authored-By:` trailer. Lets a commit be traced back to the exact model and thread and reopened via `claude --resume` or, when available, in the browser.
+- **Asking Codex for reviews**: Both spec and plan documents are reviewed by Codex automatically (if `codex` CLI is installed/available). Earlier versions used Gemini CLI, which was dropped after the `gemini` command was deprecated for private accounts.
 - **Using Google Stitch for UX/UI design**: If [Google Stitch MCP](https://stitch.withgoogle.com/docs/mcp/) is installed it will be automatically used for UI/UX design work.
 - **Controller-only commits**: In subagent-driven development, only the main agent commits — after reviews pass. Subagents focus on implementation.
 
