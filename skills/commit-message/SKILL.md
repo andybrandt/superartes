@@ -16,11 +16,12 @@ model: sonnet
 
 Before composing a commit message, make an explicit attribution check:
 
+0. Check if the work (changes) being commited are made in whole or in part by you, if the changes were made wholy by the user and you were just commiting them stop and do not attach the attribution trailer. 
 1. Identify the exact model identifier you are running as.
 2. Check whether the current platform exposes a resumable session id, local transcript id, thread id, or equivalent.
 3. Check whether the current platform exposes a browser URL or shareable link for this exact thread/session.
 
-Append this trailer to **every** commit as a footer - placed after the subject line and any body, separated from what precedes it by one blank line. For the usual one-line commit it sits directly under the subject:
+Append this trailer to **every** commit that contains your work as a footer - placed after the subject line and any body, separated from what precedes it by one blank line. For the usual one-line commit it sits directly under the subject:
 
 ```
 Model: <model identifier>
