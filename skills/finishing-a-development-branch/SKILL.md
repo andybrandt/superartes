@@ -46,6 +46,21 @@ git merge-base HEAD main 2>/dev/null || git merge-base HEAD master 2>/dev/null
 
 Or ask: "This branch split from main - is that correct?"
 
+### Step 2.5: Offer an external code review (recommended)
+
+Now that the base branch is known, and before presenting options, recommend an independent second-model review of the finished feature:
+
+```
+Tests pass. Before we integrate, I recommend an external code review (an
+independent second model via `superartes:external-code-review`) of the
+whole feature against <base-branch>. Want me to run it? [yes / skip]
+```
+
+- If **yes**, invoke `superartes:external-code-review` with the `--base <base-branch>` scope, triage findings via `superartes:receiving-code-review`, and address anything Critical/Important before continuing.
+- If **skip**, or if the change is trivial, continue.
+
+This is a recommendation, not a gate — it does **not** change the four options below. Then continue to Step 3.
+
 ### Step 3: Present Options
 
 Present exactly these 4 options:

@@ -21,6 +21,16 @@ Dispatch superartes:code-reviewer subagent to catch issues before they cascade. 
 - Before refactoring (baseline check)
 - After fixing complex bug
 
+## External code review (second model)
+
+The review above uses the Claude `code-reviewer` subagent — same model that wrote the code. For an independent second model's eyes, `superartes:external-code-review` runs Codex's `codex exec review` (Claude subagent fallback when Codex is absent). It **complements** the Claude review; it does **not** replace it, and it is **not** part of the after-every-subagent-task loop.
+
+Use it:
+- **Recommended before merging a feature** — scope the feature branch against trunk.
+- **Self-invoke (without being asked) for high-risk changes** — when the change touches authentication / authorization / cryptography / secrets; data migrations, schema changes, or mass deletion; billing / payments / money; concurrency / locking / async coordination; external API contracts or public interfaces; or an unusually large or complex diff.
+
+See `superartes:external-code-review`.
+
 ## How to Request
 
 **1. Get git SHAs:**
