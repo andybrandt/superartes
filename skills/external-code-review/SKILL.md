@@ -51,10 +51,11 @@ Capture the review to a unique temp file and call Codex directly (no wrapper, no
 ```bash
 OUT="$(mktemp "${TMPDIR:-/tmp}/external-code-review-output.XXXXXX")"
 codex exec review <scope-flag> --skip-git-repo-check -o "$OUT"
-echo "REVIEW WRITTEN TO: $OUT"
+rc=$?
+echo "CODEX EXIT: $rc — REVIEW FILE: $OUT"
 ```
 
-Set the Bash tool timeout to 280 seconds. The final `echo` surfaces the concrete output path — use that literal path with the Read tool in Step 4 (the `$OUT` shell variable does not survive to the next tool call).
+Set the Bash tool timeout to 280 seconds. Capture `rc=$?` on its own line immediately after the `codex` call and echo it: without it the trailing `echo` would make the whole Bash-tool call exit 0 and **mask a Codex failure**, sending you to read an empty file instead of falling back. Use the literal `REVIEW FILE:` path with the Read tool in Step 4 (the `$OUT` shell variable does not survive to the next tool call). **If `CODEX EXIT` is non-zero — or the review file is empty — do not treat it as a review; go to Step 5 (fallback).**
 
 - `codex exec review` exposes **no** `--sandbox` flag, and you must **never** use any `--dangerously-bypass-*` flag — rely on Codex's review mode and the host's sandbox / trust configuration.
 - `-o` (`--output-last-message`) writes only the final review message; preferred over `--json` (a JSONL event stream that would need parsing).
