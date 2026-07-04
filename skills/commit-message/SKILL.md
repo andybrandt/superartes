@@ -20,6 +20,7 @@ Before composing a commit message, make an explicit attribution check:
 1. Identify the exact model identifier you are running as.
 2. Check whether the current platform exposes a resumable session id, local transcript id, thread id, or equivalent.
 3. Check whether the current platform exposes a browser URL or shareable link for this exact thread/session.
+4. Check whether the commit also contains manual additions or edits the user made directly (a *mixed* human + AI commit).
 
 Append this trailer to **every** commit that contains your work as a footer - placed after the subject line and any body, separated from what precedes it by one blank line. For the usual one-line commit it sits directly under the subject:
 
@@ -53,6 +54,7 @@ Session-URL: <browser/share URL for this exact thread/session - only if availabl
 
   Emit the `Session` line whenever either source yields a real value. If both fail, **omit the line** - never fabricate a UUID.
 - **Session-URL** - the browser URL or shareable link for this exact thread/session. Include this line when the platform exposes a real URL, such as a `claude.ai/code` session URL, a Codex thread/session URL, or another current conversation link. **Omit the entire line** when no URL is available - do not invent, infer, or guess it.
+- **Direct edits by user** - if step 4 found manual additions or edits the user made directly (a mixed human + AI commit), add one final trailer line, exactly: `+ direct edits by user.` This marks the commit as mixed rather than purely AI-authored, so the history shows plainly where the user intervened by hand. Omit it when the work is entirely yours. (When the work was *wholly* the user's, step 0 already applies - emit no trailer at all.)
 
 **Purpose:** lets the author later identify which model and thread produced a commit and reopen it from the CLI (`claude --resume`) or, when a URL exists, in the browser.
 

@@ -5,7 +5,7 @@ description: Use when code changes need an independent external review - before 
 
 # External Code Review
 
-Get an independent second model's review of **code changes** by invoking [Codex CLI](https://developers.openai.com/codex/)'s purpose-built `codex exec review` in headless mode. Falls back to a Claude `code-reviewer` subagent when Codex is unavailable.
+Get an independent second model's review of **code changes** by invoking [Codex CLI](https://developers.openai.com/codex/)'s purpose-built `codex exec review` in headless mode. Because Codex runs on one of OpenAI's GPT-series models (whichever the user has configured — currently GPT-5.5), this is a genuinely independent review by a *different model family*, not another pass by the same model. Falls back to a Claude `code-reviewer` subagent when Codex CLI is unavailable.
 
 This is the sibling of `superartes:external-review` (which reviews *documents*). It **complements — does not replace** — the per-task Claude `code-reviewer` subagent from `superartes:requesting-code-review`.
 
@@ -13,8 +13,8 @@ This is the sibling of `superartes:external-review` (which reviews *documents*).
 
 External review earns its cost at these moments — **not** after every task (the Claude `code-reviewer` subagent already covers per-task review cheaply):
 
-- **Before merging a feature (primary)** — an independent look at the whole integrated feature. Scope: `--base <trunk>`.
-- **High-risk changes (self-invoke, without being asked)** — when the change touches any of: authentication / authorization / cryptography / secrets; data migrations, schema changes, or mass deletion; billing / payments / money; concurrency / locking / async coordination; external API contracts or public interfaces; or an unusually large or structurally complex diff. Scope: `--uncommitted` (catch issues ideally before they are even committed).
+- **Before merging a feature (primary)** — recommend it to the user and wait for their decision (a decision gate — see `superartes:finishing-a-development-branch` Step 2.5); if no user is present to make the call (autonomous run), run it automatically. An independent look at the whole integrated feature. Scope: `--base <trunk>`.
+- **High-risk changes (self-invoke, without being asked)** — when the change is substantive (e.g. not just comments or documentation) and touches any of: authentication / authorization / cryptography / secrets; data migrations, schema changes, or mass deletion; billing / payments / money; concurrency / locking / async coordination; external API contracts or public interfaces; or an unusually large or structurally complex diff. Scope: `--uncommitted` (catch issues ideally before they are even committed).
 - **On explicit user request** — any scope the user asks for.
 
 ## Process (Claude Code host)
@@ -25,7 +25,7 @@ Run `command -v codex` (Bash tool). If it fails, note "Codex CLI not available -
 
 ### Step 2: Choose the scope flag
 
-- merge / feature-complete → `--base <trunk>` (resolve trunk: `main`, else `master`)
+- merge / feature-complete → `--base <trunk>` (resolve the trunk name — usually `main`, sometimes `master`)
 - high-risk / pre-commit / "review my current changes" → `--uncommitted`
 - a specific commit the user names → `--commit <sha>`
 
@@ -55,7 +55,7 @@ rc=$?
 echo "CODEX EXIT: $rc — REVIEW FILE: $OUT"
 ```
 
-Set the Bash tool timeout to 280 seconds. Capture `rc=$?` on its own line immediately after the `codex` call and echo it: without it the trailing `echo` would make the whole Bash-tool call exit 0 and **mask a Codex failure**, sending you to read an empty file instead of falling back. Use the literal `REVIEW FILE:` path with the Read tool in Step 4 (the `$OUT` shell variable does not survive to the next tool call). **If `CODEX EXIT` is non-zero — or the review file is empty — do not treat it as a review; go to Step 5 (fallback).**
+Set the Bash tool timeout to 320 seconds. Capture `rc=$?` on its own line immediately after the `codex` call and echo it: without it the trailing `echo` would make the whole Bash-tool call exit 0 and **mask a Codex failure**, sending you to read an empty file instead of falling back. Use the literal `REVIEW FILE:` path with the Read tool in Step 4 (the `$OUT` shell variable does not survive to the next tool call). **If `CODEX EXIT` is non-zero — or the review file is empty — do not treat it as a review; go to Step 5 (fallback).**
 
 - `codex exec review` exposes **no** `--sandbox` flag, and you must **never** use any `--dangerously-bypass-*` flag — rely on Codex's review mode and the host's sandbox / trust configuration.
 - `-o` (`--output-last-message`) writes only the final review message; preferred over `--json` (a JSONL event stream that would need parsing).
@@ -63,13 +63,13 @@ Set the Bash tool timeout to 280 seconds. Capture `rc=$?` on its own line immedi
 
 **Network / sandbox note:** Codex needs network access to reach its provider. If the host sandboxes the Bash tool without network, this must run outside the sandbox — the user confirms and allows it. Resolving Codex auth is the user's responsibility, not this skill's.
 
-**Windows / shell note:** these commands assume the Bash tool is backed by **Git Bash** (as all Superartes skills are). On native Windows, Claude Code uses Git Bash when Git for Windows is installed and falls back to **PowerShell** when it is not — under that PowerShell fallback the bash constructs here (`command -v`, `mktemp`, `${TMPDIR:-/tmp}`, `/tmp/…`) will not run. Install Git for Windows for the Bash-based skills to work.
+**Windows / shell note:** these commands assume the Bash tool is backed by **Git Bash** (as all Superartes skills are). On native Windows, Claude Code uses Git Bash when Git for Windows is installed and falls back to **PowerShell** when it is not — under that PowerShell fallback the bash constructs here (`command -v`, `mktemp`, `${TMPDIR:-/tmp}`, `/tmp/…`) will not run. Suggest the user install Git for Windows so the Bash-based skills work.
 
 On non-zero exit, timeout, or empty output → Step 5 (fallback).
 
 ### Step 4: Read the review
 
-Read the literal output path printed by Step 3 (`REVIEW WRITTEN TO: …`) with the Read tool, then remove that file (`rm -f "<that path>"`).
+Read the literal output path printed by Step 3 (the `REVIEW FILE:` path) with the Read tool, then remove that file (`rm -f "<that path>"`).
 
 ### Step 5: Subagent fallback (Codex unavailable or failed)
 

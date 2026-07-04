@@ -44,9 +44,9 @@ Stop. Don't proceed to Step 2.
 git merge-base HEAD main 2>/dev/null || git merge-base HEAD master 2>/dev/null
 ```
 
-Or ask: "This branch split from main - is that correct?"
+Or ask: "This branch split from <trunk> - is that correct?"
 
-### Step 2.5: Offer an external code review (recommended)
+### Step 2.5: External code review (decision gate)
 
 Now that the base branch is known, and before presenting options, recommend an independent second-model review of the finished feature:
 
@@ -56,10 +56,13 @@ independent second model via `superartes:external-code-review`) of the
 whole feature against <base-branch>. Want me to run it? [yes / skip]
 ```
 
-- If **yes**, invoke `superartes:external-code-review` with the `--base <base-branch>` scope, triage findings via `superartes:receiving-code-review`, and address anything Critical/Important before continuing.
-- If **skip**, or if the change is trivial, continue.
+If anything specific might influence the user's decision — context they need to make the call (e.g. the feature touches auth or a data migration, or a large diff) — include it in this message.
 
-This is a recommendation, not a gate — it does **not** change the four options below. Then continue to Step 3.
+- If **yes**, invoke `superartes:external-code-review` with the `--base <base-branch>` scope, triage findings via `superartes:receiving-code-review`, and address anything Critical/Important **before** continuing.
+- If **skip** (or the change is trivial — only comments/docs), continue.
+- If **no user is present** to make the call (autonomous run), default to running the review automatically, per `superartes:external-code-review`.
+
+**This is a decision gate:** do not proceed to Step 3 until the decision is resolved — and, if the review runs, until it has completed and any Critical/Important findings are addressed. It still does **not** change the four options below.
 
 ### Step 3: Present Options
 
