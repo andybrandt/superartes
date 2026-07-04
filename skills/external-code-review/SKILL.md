@@ -46,16 +46,24 @@ Do **not** compose a custom prompt: `codex exec review` rejects a prompt combine
 
 ### Step 3: Run the review
 
-Capture the review to a unique temp file and call Codex directly (no wrapper, no pipe):
+Capture the review to a unique temp file and call Codex directly (no wrapper, no pipe). **Redirect Codex's own stdout/stderr to a log file** — `codex exec review` streams a large exec/event log (often hundreds of KB) to stdout, which overflows the Bash tool's output cap and buries the one line you must see: the `REVIEW FILE:` path. Redirecting keeps the tool's visible output to three short status lines that survive truncation every time:
 
 ```bash
 OUT="$(mktemp "${TMPDIR:-/tmp}/external-code-review-output.XXXXXX")"
-codex exec review <scope-flag> --skip-git-repo-check -o "$OUT"
+LOG="$OUT.log"
+codex exec review <scope-flag> --skip-git-repo-check -o "$OUT" >"$LOG" 2>&1
 rc=$?
-echo "CODEX EXIT: $rc — REVIEW FILE: $OUT"
+echo "CODEX EXIT: $rc"
+echo "REVIEW FILE: $OUT"
+echo "CODEX LOG:   $LOG"
 ```
 
-Set the Bash tool timeout to 320 seconds. Capture `rc=$?` on its own line immediately after the `codex` call and echo it: without it the trailing `echo` would make the whole Bash-tool call exit 0 and **mask a Codex failure**, sending you to read an empty file instead of falling back. Use the literal `REVIEW FILE:` path with the Read tool in Step 4 (the `$OUT` shell variable does not survive to the next tool call). **If `CODEX EXIT` is non-zero — or the review file is empty — do not treat it as a review; go to Step 5 (fallback).**
+Set the Bash tool timeout to 320 seconds. Why each piece matters:
+- **`-o "$OUT"`** writes only the final review message to `$OUT`, so redirecting stdout loses nothing — the review itself is still in `$OUT`.
+- **`>"$LOG" 2>&1`** sends Codex's verbose event stream to `$LOG` (derived from the unique `mktemp` path, so parallel sessions never collide) instead of the tool's stdout. Without it, the review's large stream buries the `REVIEW FILE:` line and you cannot recover the random `mktemp` path by guessing.
+- **`rc=$?` on its own line** captures Codex's real exit status before any `echo` overwrites `$?` — otherwise the trailing `echo` makes the whole Bash-tool call exit 0 and **masks a Codex failure**.
+
+Read the literal `REVIEW FILE:` path with the Read tool in Step 4 (the `$OUT` / `$LOG` shell variables do not survive to the next tool call — use the printed paths). **If `CODEX EXIT` is non-zero — or the review file is empty — do not treat it as a review; inspect `CODEX LOG` for the cause, then go to Step 5 (fallback).**
 
 - `codex exec review` exposes **no** `--sandbox` flag, and you must **never** use any `--dangerously-bypass-*` flag — rely on Codex's review mode and the host's sandbox / trust configuration.
 - `-o` (`--output-last-message`) writes only the final review message; preferred over `--json` (a JSONL event stream that would need parsing).
@@ -69,11 +77,13 @@ On non-zero exit, timeout, or empty output → Step 5 (fallback).
 
 ### Step 4: Read the review
 
-Read the literal output path printed by Step 3 (the `REVIEW FILE:` path) with the Read tool, then remove that file (`rm -f "<that path>"`).
+Read the literal output path printed by Step 3 (the `REVIEW FILE:` path) with the Read tool, then remove both temp files (`rm -f "<REVIEW FILE path>" "<CODEX LOG path>"`).
 
 ### Step 5: Subagent fallback (Codex unavailable or failed)
 
 Dispatch the `superartes:code-reviewer` subagent using the `superartes:requesting-code-review` template (`code-reviewer.md`). For a committed scope pass `BASE_SHA`/`HEAD_SHA`; for `--uncommitted` point the subagent at the working diff.
+
+When falling back because Codex *failed* (non-zero exit or empty review file), the cause is in the `CODEX LOG` file printed by Step 3 — glance at it and tell the user briefly why Codex failed (e.g. auth, network) before running the subagent review.
 
 Be honest about the degradation: under Claude Code this fallback is a fresh-context, **same-model** review (an isolated `code-reviewer` persona), not a different model. Still valuable — just weaker than an independent-model pass.
 

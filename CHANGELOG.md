@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.4.1] - 2026-07-04
+
+### Fixed
+
+- **`external-code-review` no longer loses the review-file path in Codex's output stream**: `codex exec review` streams a large exec/event log (hundreds of KB — ~277 KB in the reported case) to stdout, which overflowed the Bash tool's output cap and buried the `REVIEW FILE:` status line. The agent then could not see — or reliably recover — the random `mktemp` path and had to guess it. Step 3 now redirects Codex's stdout/stderr to a per-run log file (`... -o "$OUT" >"$LOG" 2>&1`) and prints the exit code, review path, and log path on separate lines, so the review path is always visible even under truncation. The unique `mktemp` name is deliberately kept (parallel Claude Code sessions across projects can run reviews concurrently, so a fixed name could collide); on a failed or empty run the skill now points at the log file for the cause.
+
 ## [1.4.0] - 2026-07-04
 
 ### Added
