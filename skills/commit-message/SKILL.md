@@ -30,13 +30,28 @@ Session-URL: <browser/share URL for this exact thread/session - only if availabl
 ```
 
 - **Model** - the exact model identifier you are running as (for example `claude-opus-4-8[1m]`). Always include this line.
-- **Session** - the current platform's resumable session id, local transcript id, thread id, or equivalent. Include this line whenever you can obtain a real value. Under Claude Code, this is the LOCAL session UUID that `claude --resume <uuid>` accepts, i.e. the actively-written `~/.claude/projects/<project-dir>/<uuid>.jsonl` for the current project. `<project-dir>` is the working directory path with every non-alphanumeric character replaced by a dash. Determine the Claude Code UUID with:
+- **Session** - the current platform's resumable session id, local transcript id, thread id, or equivalent. Under Claude Code, this is the LOCAL session UUID that `claude --resume <uuid>` accepts. Obtain it in this order:
 
-  ```bash
-  basename "$(ls -t ~/.claude/projects/"$(pwd | sed 's#[^a-zA-Z0-9]#-#g')"/*.jsonl | head -1)" .jsonl
-  ```
+  1. **Primary source** - the `CLAUDE_CODE_SESSION_ID` environment variable, which Claude Code sets to exactly this UUID. The `:-` guard keeps it safe under `set -u`:
 
-  Always include this line under Claude Code.
+     ```bash
+     echo "${CLAUDE_CODE_SESSION_ID:-}"
+     ```
+
+     If it prints a non-empty value, use it.
+
+  2. **Fallback (only when the variable is empty)** - the newest transcript file for this project. Derive the project directory from the git repository root (more stable than `pwd`, which yields the wrong path when committing from a subdirectory). Guard the glob so it stays silent (prints nothing, no `ls` error) when no transcript exists:
+
+     ```bash
+     proj="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+     dir=~/.claude/projects/"$(printf '%s' "$proj" | sed 's#[^a-zA-Z0-9]#-#g')"
+     latest="$(ls -t "$dir"/*.jsonl 2>/dev/null | head -1)"
+     [ -n "$latest" ] && basename "$latest" .jsonl
+     ```
+
+     Caveat: when several Claude Code sessions are active for the same project, the newest-transcript guess can pick the wrong one - treat it as best-effort.
+
+  Emit the `Session` line whenever either source yields a real value. If both fail, **omit the line** - never fabricate a UUID.
 - **Session-URL** - the browser URL or shareable link for this exact thread/session. Include this line when the platform exposes a real URL, such as a `claude.ai/code` session URL, a Codex thread/session URL, or another current conversation link. **Omit the entire line** when no URL is available - do not invent, infer, or guess it.
 
 **Purpose:** lets the author later identify which model and thread produced a commit and reopen it from the CLI (`claude --resume`) or, when a URL exists, in the browser.
