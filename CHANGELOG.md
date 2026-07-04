@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.4.0] - 2026-07-04
+
+### Added
+
+- **External code review skill (`external-code-review`)**: A new skill that runs Codex's purpose-built `codex exec review` in headless mode to give *code changes* an independent second-model review — a genuinely different model family (OpenAI GPT vs Claude) — with a Claude `code-reviewer` subagent fallback when Codex is unavailable. It is the sibling of `external-review` (which reviews documents) and **complements — does not replace** — the per-task Claude review. Scope is chosen with Codex's native flags (`--base <trunk>` before merge, `--uncommitted` for high-risk pre-commit changes, `--commit <sha>` on request); no custom prompt is composed (Codex rejects a prompt combined with a scope flag), so the reviewer relies on repo-resident context (committed spec, plan, `CLAUDE.md`, commit messages). Recommended before merging and self-invoked by the agent for substantive high-risk changes (auth, data migrations, money, concurrency, public interfaces). Integrated into `requesting-code-review` (new "second model" subsection) and `finishing-a-development-branch` (new pre-options **Step 2.5 decision gate**: stop for the user's yes/skip before integrating, auto-run when no user is present, and it does not alter the four merge/PR options). Feedback triage reuses `receiving-code-review`.
+
+  **Platform support in this release:** external code review is wired for **Claude Code as the host only** — Claude invokes Codex as the external reviewer. The symmetric arrangement (Codex as the host invoking `claude` headless as the reviewer) is **planned but not yet implemented**; on non-Claude-Code hosts the skill uses its Claude-subagent fallback. This release ships now so Claude Code users can use it without waiting for the Codex-host side.
+
+- **Mixed human/AI commit marker (`commit-message`)**: Commits that also contain manual edits the user made directly (not authored by the agent) now get a final trailer line `+ direct edits by user.`, so the history distinguishes purely-AI commits from ones with hands-on human intervention. (When the work is *wholly* the user's, the existing step-0 rule still applies — no trailer at all.)
+
+### Changed
+
+- **Trunk detection treats `master` as first-class (`finishing-a-development-branch`)**: Base-branch determination now detects the trunk by which branch actually exists (`git rev-parse --verify master` / `main`) and yields the branch *name*, instead of a merge-base probe that tried `main` first and only produced a commit SHA. Repos that use `master` are no longer resolved behind `main`; when both exist the skill asks.
+
+### Fixed
+
+- **Robust session id in `commit-message` (P2)**: The `Session:` trailer value now comes primarily from the `CLAUDE_CODE_SESSION_ID` environment variable (the exact `claude --resume` UUID), falling back to a git-repository-root-based newest-transcript heuristic only when the variable is empty. This replaces the previous `pwd`-based `ls -t | head -1` derivation, which picked the wrong session when several were active or an empty value when committing from a subdirectory. When neither source yields a value the line is omitted rather than fabricated.
+- **Concurrency-safe temp paths in `external-review` (P3)**: The document-review skill now uses per-invocation `mktemp` files for both the prompt and the output instead of fixed `/tmp/external-review-*.md` names, so concurrent reviews on one host no longer clobber each other. The skill also now removes the output file after reading it (the wrapper already removed the prompt file).
+
 ## [1.3.0] - 2026-07-02
 
 ### Changed
