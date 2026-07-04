@@ -39,12 +39,15 @@ Stop. Don't proceed to Step 2.
 
 ### Step 2: Determine Base Branch
 
+Determine the trunk this branch was cut from — **do not assume `main`**. `master` and `main` are equally valid; some setups deliberately use `master`.
+
 ```bash
-# Try common base branches
-git merge-base HEAD main 2>/dev/null || git merge-base HEAD master 2>/dev/null
+# Print whichever trunk this repo actually has (does not privilege main):
+git rev-parse --verify --quiet master >/dev/null && echo master
+git rev-parse --verify --quiet main   >/dev/null && echo main
 ```
 
-Or ask: "This branch split from <trunk> - is that correct?"
+If exactly one prints, that is the base branch. If both or neither print, ask: "This branch split from <trunk> - is that correct?"
 
 ### Step 2.5: External code review (decision gate)
 

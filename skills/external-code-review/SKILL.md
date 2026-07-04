@@ -5,7 +5,7 @@ description: Use when code changes need an independent external review - before 
 
 # External Code Review
 
-Get an independent second model's review of **code changes** by invoking [Codex CLI](https://developers.openai.com/codex/)'s purpose-built `codex exec review` in headless mode. Because Codex runs on one of OpenAI's GPT-series models (whichever the user has configured — currently GPT-5.5), this is a genuinely independent review by a *different model family*, not another pass by the same model. Falls back to a Claude `code-reviewer` subagent when Codex CLI is unavailable.
+Get an independent second model's review of **code changes** by invoking [Codex CLI](https://developers.openai.com/codex/)'s purpose-built `codex exec review` in headless mode. Because Codex runs on one of OpenAI's GPT-series models, this is a genuinely independent review by a *different model family*, not another pass by the same model. Falls back to a Claude `code-reviewer` subagent when Codex CLI is unavailable.
 
 This is the sibling of `superartes:external-review` (which reviews *documents*). It **complements — does not replace** — the per-task Claude `code-reviewer` subagent from `superartes:requesting-code-review`.
 
@@ -25,7 +25,7 @@ Run `command -v codex` (Bash tool). If it fails, note "Codex CLI not available -
 
 ### Step 2: Choose the scope flag
 
-- merge / feature-complete → `--base <trunk>` (resolve the trunk name — usually `main`, sometimes `master`)
+- merge / feature-complete → `--base <trunk>` — **detect the trunk name; do not assume `main`.** `master` and `main` are equally valid (some repos deliberately use `master`). Use whichever this repo actually has — check `git rev-parse --verify --quiet master` and `git rev-parse --verify --quiet main`, prefer the one that exists (ask the user if both or neither do), or the branch the user names.
 - high-risk / pre-commit / "review my current changes" → `--uncommitted`
 - a specific commit the user names → `--commit <sha>`
 
