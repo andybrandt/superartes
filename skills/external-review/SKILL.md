@@ -81,19 +81,24 @@ Write the prompt to a temporary file, then invoke the wrapper script. This two-s
 
 **First step** — use the Write tool to save the prompt to a temp file:
 
-Write your composed prompt to a temporary file path. Use a path inside the system temp directory to keep the prompt file outside the project tree. The path must work cross-platform:
-- On Unix/macOS: `/tmp/external-review-prompt.md`
-- On Windows (Git Bash): use `$TMPDIR` or `/tmp/` (Git Bash maps this appropriately)
+Create two unique per-invocation temp paths so concurrent reviews on one host never clobber each other - do not use fixed names. Get them with `mktemp`, and use the **literal paths it prints** in the later steps. Do **not** store them only in a shell variable: a variable set in one Bash call does not survive into the next Bash call, nor into the Write/Read tools, so `$PROMPT_FILE` would be empty there. Run (Bash tool):
+
+```bash
+mktemp "${TMPDIR:-/tmp}/external-review-prompt.XXXXXX"
+mktemp "${TMPDIR:-/tmp}/external-review-output.XXXXXX"
+```
+
+Each line prints a concrete path such as `/tmp/external-review-prompt.Ab3Xy9`. `${TMPDIR:-/tmp}` keeps the files outside the project tree and works cross-platform (Git Bash maps `/tmp` appropriately). Note both printed paths and use them **literally** below: the prompt path for the Write tool and the wrapper's first argument, the output path for the wrapper's `-o` and the Read tool. Now write your composed prompt to the literal prompt path with the Write tool.
 
 Using the Write tool (instead of a Bash heredoc) avoids an additional shell permission prompt per invocation.
 
 **Second step** — invoke Codex via the wrapper script (Bash tool):
 
 ```bash
-bash /path/to/skills/external-review/invoke-codex.sh "/tmp/external-review-prompt.md" -s read-only --skip-git-repo-check -o "/tmp/external-review-output.md"
+bash /path/to/skills/external-review/invoke-codex.sh "<prompt-path>" -s read-only --skip-git-repo-check -o "<output-path>"
 ```
 
-Replace `/path/to/skills/external-review/` with the actual skill directory path, and the temp paths with the ones you used. Set the Bash tool timeout to 280 seconds. The script feeds the prompt to `codex exec` via stdin and cleans up the prompt file automatically.
+Replace `/path/to/skills/external-review/` with the actual skill directory path, and `<prompt-path>` / `<output-path>` with the literal paths `mktemp` printed above. Set the Bash tool timeout to 280 seconds. The script feeds the prompt to `codex exec` via stdin and cleans up the prompt file automatically.
 
 **Why these flags:**
 - `-s read-only` (`--sandbox read-only`) — the review must never modify files; read-only is the safe sandbox for a critique.
@@ -103,7 +108,7 @@ Replace `/path/to/skills/external-review/` with the actual skill directory path,
 
 **Sandbox / network note:** Codex needs network access to reach its model provider. If your host environment sandboxes the Bash tool without network access (as some Claude Code and Codex sandbox configurations do), the wrapper must run outside that sandbox — the user will have to confirm and allow it. Explain to the user why this is necessary. Resolving Codex authentication itself is out of scope: the user is responsible for preparing `codex` to run headlessly.
 
-**After the run:** read the output file (e.g. `/tmp/external-review-output.md`) with the Read tool to obtain the review.
+**After the run:** read the literal output path (the one `mktemp` printed) with the Read tool to obtain the review, then remove it (`rm -f "<output-path>"`) - the wrapper removes only the prompt file, so the skill is responsible for cleaning up the output file.
 
 **If Codex fails** (non-zero exit, timeout, empty output file): report the error briefly and fall through to Step 4 (Subagent Fallback).
 
