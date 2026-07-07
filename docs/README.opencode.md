@@ -97,9 +97,9 @@ The plugin does two things:
 
 ### Tool Mapping
 
-Skills written for Claude Code are automatically adapted for OpenCode:
+Skills are automatically adapted for OpenCode:
 
-- `TodoWrite` → `todowrite`
+- Task-list tool → `todowrite`
 - `Task` with subagents → OpenCode's `@mention` system
 - `Skill` tool → OpenCode's native `skill` tool
 - File operations → Native OpenCode tools

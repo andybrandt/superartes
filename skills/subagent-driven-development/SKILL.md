@@ -58,17 +58,17 @@ digraph process {
         "Code quality reviewer subagent approves?" [shape=diamond];
         "Implementer subagent fixes quality issues" [shape=box];
         "Controller commits (superartes:commit-message)" [shape=box style=filled fillcolor=lightyellow];
-        "Mark task complete in TodoWrite" [shape=box];
+        "Mark task complete in task-list tool" [shape=box];
     }
 
     "Use superartes:using-feature-branches to create isolated branch" [shape=box style=filled fillcolor=lightblue];
-    "Read plan, extract all tasks with full text, note context, create TodoWrite" [shape=box];
+    "Read plan, extract all tasks with full text, note context, create task-list entries" [shape=box];
     "More tasks remain?" [shape=diamond];
     "Dispatch final code reviewer subagent for entire implementation" [shape=box];
     "Use superartes:finishing-a-development-branch" [shape=box style=filled fillcolor=lightgreen];
 
-    "Use superartes:using-feature-branches to create isolated branch" -> "Read plan, extract all tasks with full text, note context, create TodoWrite";
-    "Read plan, extract all tasks with full text, note context, create TodoWrite" -> "Dispatch implementer subagent (./implementer-prompt.md)";
+    "Use superartes:using-feature-branches to create isolated branch" -> "Read plan, extract all tasks with full text, note context, create task-list entries";
+    "Read plan, extract all tasks with full text, note context, create task-list entries" -> "Dispatch implementer subagent (./implementer-prompt.md)";
     "Dispatch implementer subagent (./implementer-prompt.md)" -> "Implementer subagent asks questions?";
     "Implementer subagent asks questions?" -> "Answer questions, provide context" [label="yes"];
     "Answer questions, provide context" -> "Dispatch implementer subagent (./implementer-prompt.md)";
@@ -82,8 +82,8 @@ digraph process {
     "Code quality reviewer subagent approves?" -> "Implementer subagent fixes quality issues" [label="no"];
     "Implementer subagent fixes quality issues" -> "Dispatch code quality reviewer subagent (./code-quality-reviewer-prompt.md)" [label="re-review"];
     "Code quality reviewer subagent approves?" -> "Controller commits (superartes:commit-message)" [label="yes"];
-    "Controller commits (superartes:commit-message)" -> "Mark task complete in TodoWrite";
-    "Mark task complete in TodoWrite" -> "More tasks remain?";
+    "Controller commits (superartes:commit-message)" -> "Mark task complete in task-list tool";
+    "Mark task complete in task-list tool" -> "More tasks remain?";
     "More tasks remain?" -> "Dispatch implementer subagent (./implementer-prompt.md)" [label="yes"];
     "More tasks remain?" -> "Dispatch final code reviewer subagent for entire implementation" [label="no"];
     "Dispatch final code reviewer subagent for entire implementation" -> "Use superartes:finishing-a-development-branch";
@@ -140,7 +140,7 @@ You: I'm using Subagent-Driven Development to execute this plan.
 
 [Read plan file once: docs/plans/feature-plan.md]
 [Extract all 5 tasks with full text and context]
-[Create TodoWrite with all tasks]
+[Create task-list entries with all tasks]
 
 Task 1: Hook installation script
 

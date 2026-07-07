@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.4.2] - 2026-07-07
+
+### Changed
+
+- **Task-list terminology is now platform-agnostic**: Core skills now refer to the visible checklist capability as the "task-list tool" instead of hard-coding `TodoWrite` in workflow instructions and flowcharts. `using-superartes` defines the capability once, tells agents to discover the available runtime tool, and falls back to an inline checklist when no tool exists. Platform mapping docs now describe known equivalents as mappings for that capability rather than assuming Claude Code tool names are stable across harnesses.
+
+### Fixed
+
+- **OpenCode smoke-test setup handles the current repo layout**: `tests/opencode/setup.sh` no longer assumes a legacy `lib/` directory exists before it can install the plugin fixture.
+
 ## [1.4.1] - 2026-07-04
 
 ### Fixed

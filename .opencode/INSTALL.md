@@ -71,8 +71,8 @@ To pin a specific version:
 
 ### Tool mapping
 
-When skills reference Claude Code tools:
-- `TodoWrite` → `todowrite`
+When skills reference tools or capabilities:
+- Task-list tool → `todowrite`
 - `Task` with subagents → `@mention` syntax
 - `Skill` tool → OpenCode's native `skill` tool
 - File operations → your native tools

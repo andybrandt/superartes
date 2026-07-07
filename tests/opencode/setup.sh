@@ -14,7 +14,9 @@ export OPENCODE_CONFIG_DIR="$TEST_HOME/.config/opencode"
 
 # Install plugin to test location
 mkdir -p "$HOME/.config/opencode/superartes"
-cp -r "$REPO_ROOT/lib" "$HOME/.config/opencode/superartes/"
+if [ -d "$REPO_ROOT/lib" ]; then
+    cp -r "$REPO_ROOT/lib" "$HOME/.config/opencode/superartes/"
+fi
 cp -r "$REPO_ROOT/skills" "$HOME/.config/opencode/superartes/"
 
 # Copy plugin directory
