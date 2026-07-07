@@ -5,7 +5,7 @@ description: Use when code changes need an independent external review - before 
 
 # External Code Review
 
-Get an independent second model's review of **code changes** by invoking [Codex CLI](https://developers.openai.com/codex/)'s purpose-built `codex exec review` in headless mode. Because Codex runs on one of OpenAI's GPT-series models, this is a genuinely independent review by a *different model family*, not another pass by the same model. Falls back to a Claude `code-reviewer` subagent when Codex CLI is unavailable.
+Get an independent second model's review of **code changes** by invoking another AI coding CLI in headless mode. Under Claude Code, invoke [Codex CLI](https://developers.openai.com/codex/)'s purpose-built `codex exec review`. Under Codex, invoke Claude Code headlessly with `claude -p`. In both directions this is a genuinely independent review by a different model family, not another pass by the same model.
 
 This is the sibling of `superartes:external-review` (which reviews *documents*). It **complements — does not replace** — the per-task Claude `code-reviewer` subagent from `superartes:requesting-code-review`.
 
@@ -95,6 +95,105 @@ Hand the findings to `superartes:receiving-code-review` — verify before implem
 
 Give the user a brief report: Applied (N) / Deferred (N) / Pushed back (N).
 
-## Other platforms (planned)
+## Process (Codex host)
 
-Under Codex as the host platform, the symmetric arrangement — invoke `claude` headless (`claude -p`) as the external reviewer, with a Codex subagent fallback — is **planned, not yet wired**. Until it is, on non-Claude-Code hosts use the subagent fallback (Step 5).
+### Step 1: Check availability
+
+Run `command -v claude`. If it fails, note "Claude Code CLI not available - running Codex-host fallback review instead." and skip to Step 5.
+
+### Step 2: Choose the scope and guard it
+
+Use the same scope decision rules as the Claude Code host process:
+
+- merge / feature-complete -> compare the feature branch against `<trunk>`. **Detect the trunk name; do not assume `main`.** `master` and `main` are equally valid. Use whichever this repo actually has - check `git rev-parse --verify --quiet master` and `git rev-parse --verify --quiet main`, prefer the one that exists (ask the user if both or neither do), or the branch the user names.
+- high-risk / pre-commit / "review my current changes" -> review staged, unstaged, and untracked changes.
+- a specific commit the user names -> review that commit.
+
+Confirm the selected scope is non-empty before running:
+
+```bash
+# uncommitted: any staged/unstaged/untracked change?
+test -n "$(git status --porcelain)" || echo "NOTHING TO REVIEW"
+# base: any diff between trunk's merge-base and HEAD?
+git diff --quiet "<trunk>"...HEAD && echo "NOTHING TO REVIEW"
+# commit: does the commit exist?
+git cat-file -e "<sha>^{commit}" 2>/dev/null || echo "COMMIT NOT FOUND"
+```
+
+Stop if the check reports nothing to review or a missing commit.
+
+### Step 3: Compose the Claude review prompt
+
+Claude does not have a `codex exec review`-style scope flag, so the scope must be explicit in the prompt. Write the prompt to a unique temp file so long prompts do not hit shell quoting or command-line length limits:
+
+```bash
+PROMPT="$(mktemp "${TMPDIR:-/tmp}/external-code-review-claude-prompt.XXXXXX")"
+OUT="$(mktemp "${TMPDIR:-/tmp}/external-code-review-claude-output.XXXXXX")"
+LOG="$OUT.log"
+echo "PROMPT FILE: $PROMPT"
+echo "REVIEW FILE: $OUT"
+echo "CLAUDE LOG:  $LOG"
+```
+
+Use the Write tool to put a prompt like this into the literal `PROMPT FILE:` path:
+
+```text
+You are performing an external code review for a developer working under Codex.
+
+Repository: <absolute repository path>
+Primary context files you may read:
+- CLAUDE.md
+- AGENTS.md, if present
+- docs/specs/ and docs/plans/, if relevant to the reviewed work
+
+Review scope:
+<one of the following>
+- Review all changes on the current branch against <trunk>. Use git diff <trunk>...HEAD.
+- Review current uncommitted changes. Use git status --porcelain and git diff, and include staged changes with git diff --cached.
+- Review commit <sha>. Use git show --stat --find-renames <sha> and git show --find-renames <sha>.
+
+Focus on correctness, regressions, missing tests, security issues, data loss,
+concurrency problems, API contract breaks, and maintainability problems that
+matter for this change. Lead with findings ordered by severity. For each finding,
+include file/line evidence where possible and explain the concrete risk. Avoid
+style-only comments unless they hide a real defect. If you find no substantive
+issues, say that clearly and mention residual risks or test gaps.
+
+Do not edit files. This is review only.
+```
+
+### Step 4: Run Claude headlessly
+
+Feed the prompt through stdin and capture stdout/stderr separately:
+
+```bash
+claude -p --safe-mode \
+  --allowedTools "Read,Bash(git diff *),Bash(git status *),Bash(git rev-parse *),Bash(git cat-file *),Bash(git show *)" \
+  <"$PROMPT" >"$OUT" 2>"$LOG"
+rc=$?
+rm -f "$PROMPT"
+echo "CLAUDE EXIT: $rc"
+echo "REVIEW FILE: $OUT"
+echo "CLAUDE LOG:  $LOG"
+```
+
+Set the shell timeout to at least 320 seconds. Read the literal `REVIEW FILE:` path with the Read tool. If `CLAUDE EXIT` is non-zero - or the review file is empty - do not treat it as a review; inspect `CLAUDE LOG` for the cause, then go to Step 5.
+
+- Do **not** pass `--model` in the production skill command. The user configures Claude's model and authentication. Test harnesses may add a model flag outside this production guidance when cost control is required.
+- Do **not** use `--dangerously-skip-permissions`. The review should be read-only.
+- `--safe-mode` keeps Claude from loading project plugins and hooks recursively. The prompt explicitly names the repository context Claude should inspect.
+
+After reading the review, remove both remaining temp files (`rm -f "<REVIEW FILE path>" "<CLAUDE LOG path>"`).
+
+### Step 5: Codex-host fallback
+
+If Claude is unavailable or fails, use the best review isolation available in the current Codex host:
+
+- If a subagent or multi-agent review tool is available, dispatch a fresh `code-reviewer`-style subagent with the same scope and prompt focus.
+- If no subagent facility is available, perform the review in the current session using the same prompt focus.
+
+Be honest about the degradation: under Codex this fallback is a same-model review, not a different-model pass. Still useful, but weaker than the Claude headless review.
+
+### Step 6: Triage and summarize
+
+Hand the findings to `superartes:receiving-code-review` - verify before implementing, fix Critical/Important, note Minor, and push back with reasoning when the reviewer is wrong. Then give the user a brief report: Applied (N) / Deferred (N) / Pushed back (N).

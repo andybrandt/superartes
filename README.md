@@ -125,7 +125,7 @@ The agent walks through a sequence of skills, each triggering automatically at i
 - **finishing-a-development-branch** - Merge/PR decision workflow
 - **subagent-driven-development** - Fast iteration with two-stage review (spec compliance, then code quality)
 - **external-review** - Independent external document review via [Codex CLI](https://developers.openai.com/codex/) with Claude subagent fallback
-- **external-code-review** - Independent external review of *code changes* via [Codex CLI](https://developers.openai.com/codex/)'s `codex exec review`, with Claude `code-reviewer` subagent fallback
+- **external-code-review** - Independent external review of *code changes*: Claude Code hosts invoke [Codex CLI](https://developers.openai.com/codex/)'s `codex exec review`; Codex hosts invoke Claude Code headlessly with `claude -p`
 - **commit-message** - Consistent commit message formatting
 
 **Meta**
@@ -139,7 +139,8 @@ Some skills integrate with external tools when available. They are not required 
 | Tool | Skill | Purpose |
 |------|-------|---------|
 | [Google Stitch MCP](https://stitch.withgoogle.com/docs/mcp/) | using-stitch, brainstorming | AI-powered UI/UX design generation, iteration, and preview |
-| [Codex CLI](https://developers.openai.com/codex/) | external-review, external-code-review, brainstorming, writing-plans | Independent second-model review — design specs and plans (`external-review`) and code changes (`external-code-review`, via `codex exec review`) |
+| [Codex CLI](https://developers.openai.com/codex/) | external-review, external-code-review, brainstorming, writing-plans | Independent second-model review - design specs and plans (`external-review`) and code changes when Claude Code is the host (`external-code-review`, via `codex exec review`) |
+| Claude Code CLI | external-code-review | Independent second-model review of code changes when Codex is the host, via `claude -p` |
 
 ## Philosophy
 

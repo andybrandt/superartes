@@ -179,12 +179,41 @@ def validate_marketplace(plugin_manifest: dict[str, Any]) -> None:
     )
 
 
+def validate_external_code_review_skill() -> None:
+    """Validate Codex-host external code review guidance."""
+    skill_path = REPO_ROOT / "skills" / "external-code-review" / "SKILL.md"
+    require(skill_path.is_file(), "Missing external-code-review skill")
+
+    content = skill_path.read_text(encoding="utf-8")
+    require(
+        "## Process (Codex host)" in content,
+        "external-code-review must document the Codex-host process",
+    )
+    require(
+        "`claude -p`" in content or "claude -p " in content,
+        "Codex-host external review must invoke Claude headlessly with claude -p",
+    )
+    require(
+        "planned, not yet wired" not in content,
+        "Codex-host Claude review must no longer be marked as planned",
+    )
+    require(
+        "Do **not** pass `--model`" in content,
+        "Production Claude review guidance must not force a model",
+    )
+    require(
+        "claude -p --model" not in content,
+        "Production Claude review command must not include --model",
+    )
+
+
 def main() -> None:
     """Run all validation checks."""
     package = load_json(REPO_ROOT / "package.json")
     validate_version_surfaces(package)
     plugin_manifest = validate_plugin_manifest(package)
     validate_marketplace(plugin_manifest)
+    validate_external_code_review_skill()
     print("[PASS] Codex plugin metadata is valid")
 
 

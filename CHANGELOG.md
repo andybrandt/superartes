@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.4.3] - 2026-07-07
+
+### Added
+
+- **`external-code-review` now works under Codex hosts**: The skill now supports the symmetric path where Codex invokes Claude Code headlessly with `claude -p` for an independent second-model review. The Codex-host process detects `claude`, selects the same review scopes as the Claude-host path, writes the review prompt to a temp file, feeds it to Claude through stdin, captures stdout/stderr separately, and falls back to the best Codex-host review isolation available when Claude is missing or fails. Production guidance explicitly does not pass `--model`; user configuration controls Claude's model and authentication.
+
 ## [1.4.2] - 2026-07-07
 
 ### Changed
