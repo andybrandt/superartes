@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.4.4] - 2026-07-09
+
+### Changed
+
+- **`subagent-driven-development` now spells out how the *same* implementer fixes review findings**: The "If reviewer finds issues" guidance previously said only "Implementer (same subagent) fixes them" without saying how to re-engage that instance. It now tells the controller to **resume the prior subagent** where the runtime supports it (e.g. Claude Code: message it by id/name) — that instance still holds the code it just wrote, so a terse "review found X, fix it, re-run tests" is enough context — and to fall back to re-dispatching a fresh implementer with the **diff plus the findings** when the runtime cannot resume an agent. This keeps the fix → re-review loop with the author of the code rather than the controller (reinforcing the existing "don't fix manually / context pollution" rule) while staying correct across the non-Claude-Code hosts superartes targets.
+
 ## [1.4.3] - 2026-07-07
 
 ### Added

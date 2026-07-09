@@ -265,7 +265,12 @@ Done!
 - Don't rush them into implementation
 
 **If reviewer finds issues:**
-- Implementer (same subagent) fixes them
+- The **same implementer** fixes them — not you, and not a fresh agent. If your
+  runtime can resume a prior subagent (e.g. Claude Code: message it by id/name),
+  reopen *that* instance: it still holds the code it just wrote, so a terse
+  "review found X, fix it, re-run tests" is enough context. If your runtime
+  can't resume an agent, re-dispatch a fresh implementer with the **diff + the
+  findings** so it rebuilds the context it needs.
 - Reviewer reviews again
 - Repeat until approved
 - Don't skip the re-review
