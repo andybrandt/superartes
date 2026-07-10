@@ -1,18 +1,20 @@
 # Superartes
 
-Superartes ("super skills" in Latin) is a composable skills library that provides structured development workflows for AI coding agents (primarily Claude Code, Cursor, and OpenAI's Codex). It enforces discipline through skills that trigger automatically: brainstorming before coding leading to designs & plans, reviews, TDD, systematic debugging, subagent-driven development with two-stage review, and feature branch isolation.
+Superartes ("super skills" in Latin) is a composable skills library that provides structured development workflows for AI coding agents (primarily Claude Code, Cursor, and OpenAI's Codex). It enforces discipline through skills that trigger automatically: brainstorming before coding leading to designs & plans, reviews including reviews by another model (very helpful!), TDD, systematic debugging, subagent-driven development with two-stage review and code review by another model, and feature branch isolation.
 
 ## How it works
 
-It starts from the moment you fire up your coding agent. As soon as it sees that you're building something, it *doesn't* just jump into trying to write code. Instead, it steps back and asks you what you're really trying to do.
+The process is:
 
-Once it's teased a spec out of the conversation, it shows it to you in chunks short enough to actually read and digest.
-
-After you've signed off on the design, your agent puts together an implementation plan that's clear enough for an enthusiastic junior engineer with poor taste, no judgement, no project context, and an aversion to testing to follow. It emphasizes true red/green TDD, YAGNI (You Aren't Gonna Need It), and DRY.
-
-Next up, once you say "go", it launches a *subagent-driven-development* process, having agents work through each engineering task, inspecting and reviewing their work, and continuing forward. It's not uncommon for Claude to be able to work autonomously for a couple hours at a time without deviating from the plan you put together.
-
-There's a bunch more to it, but that's the core of the system. And because the skills trigger automatically, you don't need to do anything special. Your coding agent just has Superartes.
+1. Brainstorm with AI what we are building -> SPEC
+2. Other AI model reviews the spec -> improved SPEC
+3. YOU review the spec -> approved SPEC
+4. AI creates a detailed implementation plan -> PLAN
+5. Other AI model reviews the plan -> improved PLAN
+6. YOU reviews the plan -> approved PLAN
+7. AI codes (different approaches - most often using subagents), with TDD and regression tests as well as code review at each step -> code
+8. Other AI model reviews the plan -> code reviewed
+9. YOU review the code and approve it to be merged or PR created
 
 ## Installation
 
@@ -57,6 +59,8 @@ To update after new commits are pushed:
 codex plugin marketplace upgrade superartes
 ```
 
+*(I test & use this plugin under both `claude` and `codex`)*
+
 ### OpenCode
 
 *Caveat: Superartes is not tested with OpenCode. No guarantees it will work.*
@@ -71,11 +75,7 @@ Add to your `opencode.json`:
 
 ### Gemini CLI
 
-*Caveat: Superartes is not tested with Gemini CLI and there are no guarantees it will work. Note also that Gemini CLI is no longer used as the external reviewer — reviews now run through Codex CLI (see the [Skills Library](#skills-library)).*
-
-```bash
-gemini extensions install https://github.com/andybrandt/superartes
-```
+Gemini support was removed after Google discontinued it in June 2026.
 
 ### Verify Installation
 
@@ -151,13 +151,13 @@ Some skills integrate with external tools when available. They are not required 
 
 ## Changes from upstream superpowers
 
-- **Feature branches instead of worktrees**: Replaced the `using-git-worktrees` skill with `using-feature-branches`. Uses standard `git checkout -b` instead of `git worktree add`.
-- **Commit at releasable checkpoints**: Replaced the "frequent commits" philosophy with a policy of committing only at releasable checkpoints.
+- **Asking second model for reviews**: Both spec and plan documents are reviewed by Codex automatically (if `codex` CLI is installed/available) when running under Claude Code - or by Claude Code (if `claude` CLI is installed/available) when running under Codex.
+- **Feature branches instead of worktrees**: Replaced the `using-git-worktrees` skill with `using-feature-branches`. Uses standard `git checkout -b` instead of `git worktree add`. *Worktrees did not behave correctly in my projects which use dockerized components heavily*
+- **Commit at releasable checkpoints**: Replaced the "frequent commits" philosophy with a policy of committing only at releasable checkpoints (keeping the code in "DONE" state at every commit).
 - **Simplified doc paths**: Default paths changed from `docs/superpowers/specs/` and `docs/superpowers/plans/` to `docs/specs/` and `docs/plans/`.
 - **Commit message skill**: Bundled `commit-message` skill for consistent commit message formatting across all artifacts (code, design docs, plans).
-- **AI attribution in commits**: The `commit-message` skill records which model and session produced each commit — a `Model:`/`Session:`/`Session-URL:` footer trailer (session id and URL included only when the platform exposes them), replacing the conventional `Co-Authored-By:` trailer. Lets a commit be traced back to the exact model and thread and reopened via `claude --resume` or, when available, in the browser.
-- **Asking Codex for reviews**: Both spec and plan documents are reviewed by Codex automatically (if `codex` CLI is installed/available). Earlier versions used Gemini CLI, which was dropped after the `gemini` command was deprecated for private accounts.
-- **Using Google Stitch for UX/UI design**: If [Google Stitch MCP](https://stitch.withgoogle.com/docs/mcp/) is installed it will be automatically used for UI/UX design work.
+- **AI attribution in commits**: The `commit-message` skill records which model and session produced each commit — a `Model:`/`Session:`/`Session-URL:` footer trailer (session id and URL included only when the platform exposes them), replacing the conventional `Co-Authored-By:` trailer. Lets a commit be traced back to the exact model and thread and reopened via `claude --resume`  / `codex --resume` or, when available, in the browser.
+- **Using Google Stitch for UX/UI design**: If [Google Stitch MCP](https://stitch.withgoogle.com/docs/mcp/) is installed in the harness it will be automatically used for UI/UX design work.
 - **Controller-only commits**: In subagent-driven development, only the main agent commits — after reviews pass. Subagents focus on implementation.
 
 ## Attribution
