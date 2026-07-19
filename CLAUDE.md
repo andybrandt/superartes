@@ -11,7 +11,6 @@ Superartes is a composable skills library that provides structured development w
 ```
 skills/           # Core product - each subdirectory is one skill with SKILL.md + optional supporting files
 agents/           # Agent definitions (e.g., code-reviewer.md) with YAML frontmatter
-commands/         # Slash commands (e.g., /brainstorm, /write-plan, /execute-plan) - some deprecated
 hooks/            # Session-start hooks for Claude Code and Cursor (hooks.json, hooks-cursor.json)
   session-start   # Bash script that injects using-superartes skill content on session start
   run-hook.cmd    # Windows polyglot wrapper for hooks
