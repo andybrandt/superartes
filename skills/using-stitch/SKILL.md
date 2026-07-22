@@ -94,6 +94,56 @@ After generating screens, tell the user:
 >
 > **Note:** Sometimes Stitch does not refresh properly after MCP-initiated changes. If you don't see the latest designs, try refreshing the page or reopening the project.
 
+## Screen Names: `title` vs `label`
+
+Stitch stores two different names for a screen, in two different objects. Getting
+this wrong silently maps user feedback to the wrong screen.
+
+| What | Where it lives | Who sets it |
+|------|----------------|-------------|
+| `title` | `list_screens` → `screens[].title` | **Stitch**, auto-generated. Rewritten whenever the model generates or edits the screen. |
+| `label` | `get_project` → `screenInstances[].label` | **The user**, by renaming on the canvas. Absent if never renamed. |
+
+**When the user refers to a screen by name and they have edited the name, they mean the `label`. Always resolve
+it with `get_project` — `list_screens` structurally cannot show it.**
+
+Auto-titles are not just different, they are often actively misleading. Real example:
+
+| User's `label` | Stitch's `title` for the same screen |
+|---|---|
+| `Comments Desktop V4 ACC` | `Comments - Dashboard with Annotated Updates` |
+| `Responders - V4 - ACC` | `Responders - Public Reply Only Refined` |
+
+Matching on title would have selected the wrong screen in both cases. Note also
+that several distinct screens frequently share one identical auto-title (e.g.
+three screens all titled "Responders - Keyword Management Mobile"), so titles are
+not unique and cannot be used as keys.
+
+### Resolving a user-named screen to its files
+
+The two calls hold different halves of what you need, so **join them on the screen id**:
+
+1. `get_project` → find the instance whose `label` matches the user's name.
+2. Take its **`sourceScreen`** field (`projects/{p}/screens/{screenId}`) — **not**
+   the instance `id`. They usually coincide, but a duplicated instance gets a
+   suffixed id (`<id>-1784652056734`) whose `sourceScreen` points at a *different*
+   screen entirely.
+3. `list_screens` → find that `screenId`; use its `htmlCode.downloadUrl` and
+   `screenshot.downloadUrl` to fetch the mockup.
+
+Also present in `screenInstances`: `hidden: true` marks screens hidden on the
+canvas (usually superseded iterations), and entries with
+`type: "DESIGN_SYSTEM_INSTANCE"` are the design-system swatch, not screens — skip both.
+
+### Tip: have the user tag accepted screens
+
+On a long design session, ask the user to mark approved screens with a consistent
+token in the rename (e.g. an `ACC` suffix). You can then filter
+`screenInstances[].label` for it and reliably pull exactly the approved set,
+instead of re-asking which screen was which.
+
+Remember, when using Stitch's UI user has no way to see screen IDs.
+
 ### Editing Existing Screens
 
 Use `edit_screens` when the user wants modifications:
@@ -121,7 +171,7 @@ Use `apply_design_system` to restyle existing screens with a different design sy
 |------|-------------|
 | `list_projects` | Find existing projects |
 | `create_project` | Start new design work |
-| `get_project` | Load project details and screen instances |
+| `get_project` | Load project details, screen instances, **and the user's own screen names (`screenInstances[].label`)** |
 | `list_screens` | See all screens in a project |
 | `get_screen` | Get details of one screen, or verify generation succeeded |
 | `generate_screen_from_text` | Create new screen from description |
@@ -142,3 +192,7 @@ Use `apply_design_system` to restyle existing screens with a different design sy
 | Using screen IDs from `list_screens` for `apply_design_system` | Use screen **instance** IDs from `get_project` |
 | Generating screens without establishing a design system first | Set up the design system first so screens are consistent |
 | Skipping existing project check | Always check `list_projects` first to avoid duplicating work |
+| Reading `list_screens` titles as the user's screen names | Those are Stitch's auto-generated descriptions. User renames live in `get_project` → `screenInstances[].label` |
+| Matching a user-mentioned screen by `title` | Titles are non-unique and often misleading; resolve via `label`, then join on screen id |
+| Using a `screenInstances[].id` as the screen id | Use `sourceScreen`; duplicated instances have suffixed ids pointing at a different screen |
+| Concluding renames "didn't sync" when they don't appear | They never appear in `list_screens` by design — check `get_project` before assuming a sync bug |
