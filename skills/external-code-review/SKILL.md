@@ -5,15 +5,27 @@ description: Use when code changes need an independent external review - before 
 
 # External Code Review
 
-Get an independent second model's review of **code changes** by invoking another AI coding CLI in headless mode. Under Claude Code, invoke [Codex CLI](https://developers.openai.com/codex/)'s purpose-built `codex exec review`. Under Codex, invoke Claude Code headlessly with `claude -p`. In both directions this is a genuinely independent review by a different model family, not another pass by the same model.
+Get an independent second model's review of **code changes** by invoking another AI coding CLI in headless mode. 
+
+## Selecting the appropriate reviewer & command
+
+In order for the review to be truly valuable you have to invoke other model family & harness than yourself (current controller). 
+
+| Controller host | Allowed independent reviewer | 
+|-----------------|------------------------------|
+| Claude Code (Anthropic models) | [Codex CLI (OpenAI models)](https://developers.openai.com/codex/) (`codex exec`) |
+| Codex (OpenAI models) | [Claude Code CLI headless (Anthropic models)](https://code.claude.com/docs/en/headless) |
+| Unknown host | Stop and ask; do not guess; suggest fallback to own subagent |
+
+RULE: Never run a reviewer from the same model family as the active controller. 
 
 This is the sibling of `superartes:external-review` (which reviews *documents*). It **complements — does not replace** — the per-task Claude `code-reviewer` subagent from `superartes:requesting-code-review`.
 
 ## When to use
 
-External review earns its cost at these moments — **not** after every task (the Claude `code-reviewer` subagent already covers per-task review cheaply):
+External review earns its cost at these moments — **not** after every task (the `code-reviewer` subagent already covers per-task review cheaply):
 
-- **Before merging a feature (primary)** — recommend it to the user and wait for their decision (a decision gate — see `superartes:finishing-a-development-branch` Step 2.5); if no user is present to make the call (autonomous run), run it automatically. An independent look at the whole integrated feature. Scope: `--base <trunk>`.
+- **Before merging a feature (primary)** — recommend it to the user and wait for their decision (a decision gate — see `superartes:finishing-a-development-branch` Step 2.5); if no user is present to make the call (autonomous run), run it automatically. An independent look at the whole integrated feature. Scope: `--base <trunk>` for `codex` reviewer and equivalent for `claude -p`.
 - **High-risk changes (self-invoke, without being asked)** — when the change is substantive (e.g. not just comments or documentation) and touches any of: authentication / authorization / cryptography / secrets; data migrations, schema changes, or mass deletion; billing / payments / money; concurrency / locking / async coordination; external API contracts or public interfaces; or an unusually large or structurally complex diff. Scope: `--uncommitted` (catch issues ideally before they are even committed).
 - **On explicit user request** — any scope the user asks for.
 

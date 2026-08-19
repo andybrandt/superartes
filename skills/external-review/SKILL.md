@@ -9,20 +9,15 @@ Review a design spec, an implementation plan or other document by invoking an ex
 
 ## Selecting the appropriate reviewer & command
 
-In order for the review to be trully valuable you have to invoke other model & harness than yourself. 
+In order for the review to be truly valuable you have to invoke other model & harness than yourself (current controller). 
 
 | Controller host | Allowed independent reviewer | 
 |-----------------|------------------------------|
-| Claude Code (Anthropic models) | Codex CLI (OpenAI models) |
-| Codex (OpenAI models) | Claude Code CLI headlessly (Anthropic models) |
-| Unknown host | Stop and ask; do not guess |
+| Claude Code (Anthropic models) | [Codex CLI (OpenAI models)](https://developers.openai.com/codex/) (`codex exec`) |
+| Codex (OpenAI models) | [Claude Code CLI headless (Anthropic models)](https://code.claude.com/docs/en/headless) |
+| Unknown host | Stop and ask; do not guess; suggest fallback to own subagent |
 
 Never run a reviewer from the same model family as the active controller. 
-
-
-For Claude Code the default external reviewer is [Codex CLI](https://developers.openai.com/codex/) (`codex exec`). Falls back to a Claude subagent review when the external CLI is not available.
-
-For Codex the default external controller is [Claude Code in headless mode](https://code.claude.com/docs/en/headless). Falls back to a GPT subagent review when the external CLI is not available. 
 
 ## Inputs
 
