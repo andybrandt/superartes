@@ -5,16 +5,24 @@ description: "Use when designing UI/UX and Google Stitch MCP tools (mcp__stitch_
 
 # Using Google Stitch for UI Design
 
-Use Google Stitch MCP to generate, iterate on, and preview UI designs during brainstorming. Stitch produces real visual designs that the user can review and fine-tune in their browser.
+Use Google Stitch MCP to generate, iterate on, and preview UI designs during brainstorming. Stitch produces real visual designs that the user can review and fine-tune in their browser using Stitch's web UI. 
 
 ## Prerequisites
 
-This skill applies ONLY when `mcp__stitch__*` tools are present in your available tools. If they are not available, skip this skill entirely and fall back to the Visual Companion or text-only brainstorming.
+This skill applies ONLY when `mcp__stitch__*` tools are present in your available tools. If they are not available, skip this skill entirely and fall back to the Visual Companion or text-only brainstorming. 
+
+If running under "Claude Code" consider using the built-in Skill(skill: "design") instead - ask the user for their preference. If the user decides to use Skill(skill: "design") follow that skill instead of this skill. 
 
 ## Process Flow
 
 ```dot
 digraph stitch_flow {
+    "Stitch MCP tools available?" [shape=diamond];
+    "Use Visual Companion or\ntext-only brainstorming" [shape=doublecircle];
+    "Running in Claude Code?" [shape=diamond];
+    "Ask user: use built-in\ndesign skill?" [shape=box];
+    "User chose built-in\ndesign skill?" [shape=diamond];
+    "Use built-in design skill" [shape=doublecircle];
     "Check existing projects\n(list_projects)" [shape=box];
     "Relevant project exists?" [shape=diamond];
     "Load project context\n(get_project, list_screens,\nlist_design_systems)" [shape=box];
@@ -27,6 +35,13 @@ digraph stitch_flow {
     "Edit screens or\ngenerate variants" [shape=box];
     "Design approved" [shape=doublecircle];
 
+    "Stitch MCP tools available?" -> "Use Visual Companion or\ntext-only brainstorming" [label="no"];
+    "Stitch MCP tools available?" -> "Running in Claude Code?" [label="yes"];
+    "Running in Claude Code?" -> "Ask user: use built-in\ndesign skill?" [label="yes"];
+    "Running in Claude Code?" -> "Check existing projects\n(list_projects)" [label="no"];
+    "Ask user: use built-in\ndesign skill?" -> "User chose built-in\ndesign skill?";
+    "User chose built-in\ndesign skill?" -> "Use built-in design skill" [label="yes"];
+    "User chose built-in\ndesign skill?" -> "Check existing projects\n(list_projects)" [label="no"];
     "Check existing projects\n(list_projects)" -> "Relevant project exists?";
     "Relevant project exists?" -> "Load project context\n(get_project, list_screens,\nlist_design_systems)" [label="yes"];
     "Relevant project exists?" -> "Ask user: visual preferences" [label="no"];
