@@ -5,13 +5,30 @@ description: Use when a design spec, implementation plan, or other document need
 
 # External Document Review
 
-Review a design spec, an implementation plan or other document by invoking an external AI CLI in headless, read-only mode. The default external reviewer is [Codex CLI](https://developers.openai.com/codex/) (`codex exec`). Falls back to a Claude subagent review when the external CLI is not available.
+Review a design spec, an implementation plan or other document by invoking an external AI CLI in headless, read-only mode. 
+
+## Selecting the appropriate reviewer & command
+
+In order for the review to be trully valuable you have to invoke other model & harness than yourself. 
+
+| Controller host | Allowed independent reviewer | 
+|-----------------|------------------------------|
+| Claude Code (Anthropic models) | Codex CLI (OpenAI models) |
+| Codex (OpenAI models) | Claude Code CLI headlessly (Anthropic models) |
+| Unknown host | Stop and ask; do not guess |
+
+Never run a reviewer from the same model family as the active controller. 
+
+
+For Claude Code the default external reviewer is [Codex CLI](https://developers.openai.com/codex/) (`codex exec`). Falls back to a Claude subagent review when the external CLI is not available.
+
+For Codex the default external controller is [Claude Code in headless mode](https://code.claude.com/docs/en/headless). Falls back to a GPT subagent review when the external CLI is not available. 
 
 ## Inputs
 
 This skill needs to know:
-- The path to the document being reviewed
-- The document type (e.g., "spec", "plan", or a brief description for other document types)
+- The path to the document(s) being reviewed
+- The document(s) type (e.g., "spec", "plan", or a brief description for other document types)
 - Related context documents, if any (parent architecture spec, the spec a plan is based on, etc.)
 
 When invoked by another skill (brainstorming, writing-plans), these are available in the conversation context. When invoked directly by user request, determine them from the user's message and the current conversation - ask the user if anything is unclear.
@@ -45,7 +62,7 @@ digraph external_review {
 
 ### Step 1: Check external CLI availability
 
-Run `command -v codex` via the Bash tool. If it succeeds, proceed with the Codex review. If it fails, note to user: "Codex CLI not available - running Claude subagent review instead." and skip to Step 4 (Subagent Fallback).
+Run `command -v codex` or `command -v claude` via the Bash tool. If it succeeds, proceed with the Codex review. If it fails, note to user: "Codex CLI not available - running Claude subagent review instead." and skip to Step 4 (Subagent Fallback).
 
 ### Step 2: Compose the review prompt
 
