@@ -8,6 +8,17 @@ mkdir -p "$RAW_REVIEW_ROOT"
 REVIEW_ROOT="$(cd "$RAW_REVIEW_ROOT" && pwd -P)"
 REVIEWER_PID=""
 VALIDATED_RUN=""
+REGISTRY_OWNED=0
+REGISTRY_OWNER_PID=""
+REGISTRY_OWNER_START=""
+REGISTRY_OBSERVED_PID=""
+REGISTRY_OBSERVED_START=""
+CANCEL_LOCK_OWNED=0
+CANCEL_LOCK_DIR=""
+CANCEL_OWNER_PID=""
+CANCEL_OWNER_START=""
+CANCEL_OBSERVED_PID=""
+CANCEL_OBSERVED_START=""
 
 usage() {
     cat <<'USAGE'
@@ -160,6 +171,237 @@ process_group_id() {
         tr -d '[:space:]'
 }
 
+release_registry() {
+    local lock_dir="$REVIEW_ROOT/.registry-lock"
+    [ "$REGISTRY_OWNED" -eq 1 ] || return 0
+    if [ "$(cat "$lock_dir/owner-pid" 2>/dev/null || true)" = \
+        "$REGISTRY_OWNER_PID" ] && \
+        [ "$(cat "$lock_dir/owner-start" 2>/dev/null || true)" = \
+        "$REGISTRY_OWNER_START" ]; then
+        rm -f -- "$lock_dir/owner-pid" "$lock_dir/owner-start"
+        rmdir -- "$lock_dir" 2>/dev/null || true
+    fi
+    REGISTRY_OWNED=0
+}
+
+registry_owner_metadata_valid() {
+    local lock_dir="$REVIEW_ROOT/.registry-lock"
+    [ -f "$lock_dir/owner-pid" ] && [ ! -L "$lock_dir/owner-pid" ] || \
+        return 1
+    [ -f "$lock_dir/owner-start" ] && [ ! -L "$lock_dir/owner-start" ] || \
+        return 1
+    REGISTRY_OBSERVED_PID="$(cat "$lock_dir/owner-pid" 2>/dev/null || true)"
+    REGISTRY_OBSERVED_START="$(cat "$lock_dir/owner-start" 2>/dev/null || true)"
+    case "$REGISTRY_OBSERVED_PID" in
+        ''|*[!0-9]*) return 1 ;;
+    esac
+    [ "$REGISTRY_OBSERVED_PID" -gt 0 ] 2>/dev/null || return 1
+    [ -n "$REGISTRY_OBSERVED_START" ]
+}
+
+registry_owner_is_dead() {
+    local actual
+    registry_owner_metadata_valid || return 1
+    kill -0 "$REGISTRY_OBSERVED_PID" 2>/dev/null || return 0
+    actual="$(process_start_identity "$REGISTRY_OBSERVED_PID")"
+    [ -n "$actual" ] || return 1
+    [ "$actual" != "$REGISTRY_OBSERVED_START" ]
+}
+
+reclaim_dead_registry() {
+    local lock_dir="$REVIEW_ROOT/.registry-lock"
+    local observed_pid="$REGISTRY_OBSERVED_PID"
+    local observed_start="$REGISTRY_OBSERVED_START"
+    [ "$(cat "$lock_dir/owner-pid" 2>/dev/null || true)" = \
+        "$observed_pid" ] || return 1
+    [ "$(cat "$lock_dir/owner-start" 2>/dev/null || true)" = \
+        "$observed_start" ] || return 1
+    rm -f -- "$lock_dir/owner-pid" "$lock_dir/owner-start"
+    rmdir -- "$lock_dir" 2>/dev/null
+}
+
+print_registry_manual_recovery() {
+    local lock_dir="$REVIEW_ROOT/.registry-lock"
+    printf 'Registry lock owner metadata is missing or malformed: %s\n' \
+        "$lock_dir" >&2
+    printf 'Inspect owner-pid and owner-start. After proving no owner exists, remove only those files and run: rmdir -- '\''%s'\''\n' \
+        "$lock_dir" >&2
+}
+
+acquire_registry() {
+    local lock_dir="$REVIEW_ROOT/.registry-lock"
+    local attempts=0
+    REGISTRY_OWNER_PID="$$"
+    REGISTRY_OWNER_START="$(process_start_identity "$$")"
+    [ -n "$REGISTRY_OWNER_START" ] || return 75
+    while ! mkdir "$lock_dir" 2>/dev/null; do
+        if registry_owner_is_dead; then
+            reclaim_dead_registry || true
+        fi
+        attempts=$((attempts + 1))
+        if [ "$attempts" -ge 100 ]; then
+            if ! registry_owner_metadata_valid; then
+                print_registry_manual_recovery
+            else
+                printf 'Registry lock unavailable: %s\n' "$lock_dir" >&2
+            fi
+            return 75
+        fi
+        sleep 0.01
+    done
+    REGISTRY_OWNED=1
+    trap release_registry EXIT
+    write_atomic "$lock_dir/owner-pid" "$REGISTRY_OWNER_PID"
+    write_atomic "$lock_dir/owner-start" "$REGISTRY_OWNER_START"
+}
+
+cancel_lock_metadata_valid() {
+    local lock_dir="$1"
+    [ -d "$lock_dir" ] && [ ! -L "$lock_dir" ] || return 1
+    [ -f "$lock_dir/owner-pid" ] && [ ! -L "$lock_dir/owner-pid" ] || \
+        return 1
+    [ -f "$lock_dir/owner-start" ] && [ ! -L "$lock_dir/owner-start" ] || \
+        return 1
+    CANCEL_OBSERVED_PID="$(cat "$lock_dir/owner-pid" 2>/dev/null || true)"
+    CANCEL_OBSERVED_START="$(cat "$lock_dir/owner-start" 2>/dev/null || true)"
+    case "$CANCEL_OBSERVED_PID" in
+        ''|*[!0-9]*) return 1 ;;
+    esac
+    [ "$CANCEL_OBSERVED_PID" -gt 0 ] 2>/dev/null || return 1
+    [ -n "$CANCEL_OBSERVED_START" ]
+}
+
+cancel_lock_owner_is_dead() {
+    local lock_dir="$1"
+    local actual
+    cancel_lock_metadata_valid "$lock_dir" || return 1
+    kill -0 "$CANCEL_OBSERVED_PID" 2>/dev/null || return 0
+    actual="$(process_start_identity "$CANCEL_OBSERVED_PID")"
+    [ -n "$actual" ] || return 1
+    [ "$actual" != "$CANCEL_OBSERVED_START" ]
+}
+
+reclaim_stale_cancel_lock() {
+    local lock_dir="$1"
+    local observed_pid="$CANCEL_OBSERVED_PID"
+    local observed_start="$CANCEL_OBSERVED_START"
+    [ "$(cat "$lock_dir/owner-pid" 2>/dev/null || true)" = \
+        "$observed_pid" ] || return 1
+    [ "$(cat "$lock_dir/owner-start" 2>/dev/null || true)" = \
+        "$observed_start" ] || return 1
+    rm -f -- "$lock_dir/owner-pid" "$lock_dir/owner-start"
+    rmdir -- "$lock_dir" 2>/dev/null
+}
+
+release_cancel_lock() {
+    [ "$CANCEL_LOCK_OWNED" -eq 1 ] || return 0
+    if [ "$(cat "$CANCEL_LOCK_DIR/owner-pid" 2>/dev/null || true)" = \
+        "$CANCEL_OWNER_PID" ] && \
+        [ "$(cat "$CANCEL_LOCK_DIR/owner-start" 2>/dev/null || true)" = \
+        "$CANCEL_OWNER_START" ]; then
+        rm -f -- "$CANCEL_LOCK_DIR/owner-pid" \
+            "$CANCEL_LOCK_DIR/owner-start"
+        rmdir -- "$CANCEL_LOCK_DIR" 2>/dev/null || true
+    fi
+    CANCEL_LOCK_OWNED=0
+}
+
+acquire_cancel_lock() {
+    local run_dir="$1"
+    CANCEL_LOCK_DIR="$run_dir/.cancel-lock"
+    CANCEL_OWNER_PID="$$"
+    CANCEL_OWNER_START="$(process_start_identity "$$")"
+    [ -n "$CANCEL_OWNER_START" ] || return 4
+    if ! mkdir "$CANCEL_LOCK_DIR" 2>/dev/null; then
+        if cancel_lock_owner_is_dead "$CANCEL_LOCK_DIR"; then
+            reclaim_stale_cancel_lock "$CANCEL_LOCK_DIR" || true
+        fi
+        if ! mkdir "$CANCEL_LOCK_DIR" 2>/dev/null; then
+            printf 'STATE=cancellation-requested\nRUN_DIR=%s\n' "$run_dir"
+            return 12
+        fi
+    fi
+    CANCEL_LOCK_OWNED=1
+    trap release_cancel_lock EXIT
+    write_atomic "$CANCEL_LOCK_DIR/owner-pid" "$CANCEL_OWNER_PID"
+    write_atomic "$CANCEL_LOCK_DIR/owner-start" "$CANCEL_OWNER_START"
+}
+
+find_matching_runs() {
+    local review_key="$1"
+    local candidate
+    for candidate in "$REVIEW_ROOT"/run-*; do
+        [ -d "$candidate" ] || continue
+        [ ! -L "$candidate" ] || continue
+        [ -f "$candidate/review-key" ] && \
+            [ ! -L "$candidate/review-key" ] || continue
+        if [ "$(cat "$candidate/review-key" 2>/dev/null || true)" = \
+            "$review_key" ]; then
+            printf '%s\n' "$candidate"
+        fi
+    done
+}
+
+mark_abandoned_launch_failed() {
+    local run_dir="$1"
+    local diagnostic="$2"
+    printf '%s\n' "$diagnostic" >> "$run_dir/supervisor-log"
+    write_atomic "$run_dir/completed-at" "$(date +%s)"
+    write_atomic "$run_dir/state" launch-failed
+}
+
+reconcile_abandoned_matching_runs() {
+    local matching_runs="$1"
+    local candidate
+    local state
+    local publication_guard_seconds
+    local publication_guard_started
+    publication_guard_seconds="${SUPERARTES_REVIEW_TEST_PUBLICATION_GUARD_SECONDS:-10}"
+    case "$publication_guard_seconds" in
+        ''|*[!0-9]*) publication_guard_seconds=10 ;;
+    esac
+    while IFS= read -r candidate; do
+        [ -n "$candidate" ] || continue
+        validate_run "$candidate" || return $?
+        state="$(read_artifact "$candidate/state")"
+        [ -z "$state" ] || continue
+        if supervisor_identity_matches "$candidate"; then
+            continue
+        fi
+        if [ ! -f "$candidate/supervisor-output" ] || \
+            [ -L "$candidate/supervisor-output" ] || \
+            [ ! -f "$candidate/supervisor-log" ] || \
+            [ -L "$candidate/supervisor-log" ]; then
+            mark_abandoned_launch_failed "$candidate" \
+                'Reconciled abandoned pre-launch run after registry owner death'
+            continue
+        fi
+
+        # Both supervisor streams are durable launch intent. The creator may
+        # have died after spawning a supervisor that has not yet published its
+        # identity, so keep the registry and guard that publication window.
+        publication_guard_started=$SECONDS
+        while [ $((SECONDS - publication_guard_started)) -lt \
+            "$publication_guard_seconds" ]; do
+            state="$(read_artifact "$candidate/state")"
+            [ -z "$state" ] || break
+            if supervisor_identity_matches "$candidate"; then
+                break
+            fi
+            sleep 0.1
+        done
+        state="$(read_artifact "$candidate/state")"
+        [ -z "$state" ] || continue
+        if supervisor_identity_matches "$candidate"; then
+            continue
+        fi
+        mark_abandoned_launch_failed "$candidate" \
+            'Reconciled launch intent without supervisor publication'
+    done <<EOF
+$matching_runs
+EOF
+}
+
 reviewer_identity_matches() {
     local run_dir="$1"
     local pid
@@ -272,16 +514,47 @@ supervise_run() {
     local reviewer_pgid
     local reviewer_exit
     local test_setup_delay
+    local test_publication_delay
+    local state
+    local cancellation_value
+    local cancellation_wait=0
 
+    # Publish only this process's durable identity before any scheduling delay
+    # or registry acquisition. A competing registry owner can then distinguish
+    # a live supervisor from launch intent whose supervisor never started.
     supervisor_start="$(process_start_identity "$$")"
     if [ -z "$supervisor_start" ]; then
         printf 'Could not establish supervisor identity\n' >&2
-        write_atomic "$run_dir/completed-at" "$(date +%s)"
-        write_atomic "$run_dir/state" launch-failed
         return 0
     fi
     write_atomic "$run_dir/supervisor-pid" "$$"
     write_atomic "$run_dir/supervisor-start" "$supervisor_start"
+
+    # Deterministic test hook for the creator/supervisor publication race.
+    test_publication_delay="${SUPERARTES_REVIEW_TEST_SUPERVISOR_PUBLICATION_DELAY:-0}"
+    case "$test_publication_delay" in
+        ''|*[!0-9]*) test_publication_delay=0 ;;
+    esac
+    if [ -n "${SUPERARTES_REVIEW_TEST_SUPERVISOR_PUBLICATION_READY_FILE:-}" ]; then
+        write_atomic \
+            "$SUPERARTES_REVIEW_TEST_SUPERVISOR_PUBLICATION_READY_FILE" "$$"
+    fi
+    if [ "$test_publication_delay" -gt 0 ]; then
+        sleep "$test_publication_delay"
+    fi
+
+    # Fence supervisor ownership against registry reconciliation and linked
+    # retry. The parent holds this registry through spawn, so a normally
+    # scheduled supervisor waits until the launch command is complete.
+    acquire_registry || return $?
+    validate_run "$run_dir" || return $?
+    run_dir="$VALIDATED_RUN"
+    state="$(read_artifact "$run_dir/state")"
+    if is_terminal_state "$state"; then
+        release_registry
+        trap - EXIT
+        return 0
+    fi
 
     # Deterministic test hook for proving setup time precedes reviewer timing.
     test_setup_delay="${SUPERARTES_REVIEW_TEST_SETUP_DELAY:-0}"
@@ -296,6 +569,8 @@ supervise_run() {
         printf 'Could not launch reviewer profile\n' >&2
         write_atomic "$run_dir/completed-at" "$(date +%s)"
         write_atomic "$run_dir/state" launch-failed
+        release_registry
+        trap - EXIT
         return 0
     fi
     if [ "${SUPERARTES_REVIEW_TEST_FORCE_IDENTITY_FAILURE:-0}" -eq 1 ]; then
@@ -316,6 +591,8 @@ supervise_run() {
         reap_reviewer "$REVIEWER_PID"
         write_atomic "$run_dir/completed-at" "$(date +%s)"
         write_atomic "$run_dir/state" launch-failed
+        release_registry
+        trap - EXIT
         return 0
     fi
 
@@ -324,17 +601,34 @@ supervise_run() {
     write_atomic "$run_dir/reviewer-pgid" "$reviewer_pgid"
     write_atomic "$run_dir/started-at" "$(date +%s)"
     write_atomic "$run_dir/state" running
+    release_registry
+    trap - EXIT
     kill -CONT "$REVIEWER_PID"
 
     reap_reviewer "$REVIEWER_PID"
     reviewer_exit="$REVIEWER_WAIT_EXIT"
     write_atomic "$run_dir/exit-code" "$reviewer_exit"
     write_atomic "$run_dir/completed-at" "$(date +%s)"
-    if [ -f "$run_dir/cancel-requested" ]; then
+    cancellation_value="$(read_artifact "$run_dir/cancel-requested")"
+    while [ "$cancellation_wait" -lt 30 ]; do
+        case "$cancellation_value" in
+            pending:*)
+                sleep 0.1
+                cancellation_value="$(read_artifact \
+                    "$run_dir/cancel-requested")"
+                cancellation_wait=$((cancellation_wait + 1))
+                ;;
+            *) break ;;
+        esac
+    done
+    case "$cancellation_value" in
+        accepted:*)
         write_atomic "$run_dir/state" cancelled
-    else
-        write_atomic "$run_dir/state" exited
-    fi
+        ;;
+        *)
+            write_atomic "$run_dir/state" exited
+            ;;
+    esac
 }
 
 launch_supervisor() {
@@ -356,6 +650,12 @@ launch_supervisor() {
 
 start_run() {
     [ "$#" -ge 1 ] || return 64
+    local after_terminal=""
+    if [ "${1:-}" = --after-terminal ]; then
+        [ "$#" -ge 3 ] || return 64
+        after_terminal="$2"
+        shift 2
+    fi
     local profile="$1"
     local review_key
     local requested_work_dir
@@ -369,6 +669,15 @@ start_run() {
     local run_dir
     local state
     local waited
+    local matching_run
+    local matching_runs
+    local candidate
+    local previous
+    local nonterminal_count=0
+    local nonterminal_run=""
+    local tail_count=0
+    local tail_run=""
+    local named
 
     case "$profile" in
         claude-prompt|codex-prompt)
@@ -418,15 +727,77 @@ start_run() {
     esac
     run_id="$(new_uuid)"
     run_dir="$REVIEW_ROOT/run-$run_id"
+    acquire_registry || return $?
+    matching_runs="$(find_matching_runs "$review_key")"
+    reconcile_abandoned_matching_runs "$matching_runs"
+    while IFS= read -r candidate; do
+        [ -n "$candidate" ] || continue
+        state="$(read_artifact "$candidate/state")"
+        if ! is_terminal_state "$state"; then
+            nonterminal_count=$((nonterminal_count + 1))
+            nonterminal_run="$candidate"
+        fi
+    done <<EOF
+$matching_runs
+EOF
+    if [ "$nonterminal_count" -gt 1 ]; then
+        printf 'Invariant corruption: multiple nonterminal matching runs:\n%s\n' \
+            "$matching_runs" >&2
+        return 4
+    fi
+    if [ "$nonterminal_count" -eq 1 ]; then
+        printf 'STATE=outstanding\nRUN_DIR=%s\n' "$nonterminal_run"
+        return 12
+    fi
+
+    if [ -n "$matching_runs" ]; then
+        while IFS= read -r candidate; do
+            [ -n "$candidate" ] || continue
+            named=0
+            while IFS= read -r matching_run; do
+                [ -n "$matching_run" ] || continue
+                previous="$(read_artifact "$matching_run/previous-run")"
+                if [ "$previous" = "$candidate" ]; then
+                    named=1
+                    break
+                fi
+            done <<EOF
+$matching_runs
+EOF
+            if [ "$named" -eq 0 ]; then
+                tail_count=$((tail_count + 1))
+                tail_run="$candidate"
+            fi
+        done <<EOF
+$matching_runs
+EOF
+        if [ "$tail_count" -ne 1 ]; then
+            printf 'Invariant corruption: matching chain has %s tails:\n%s\n' \
+                "$tail_count" "$matching_runs" >&2
+            return 4
+        fi
+        if [ -z "$after_terminal" ]; then
+            printf 'STATE=outstanding\nRUN_DIR=%s\n' "$tail_run"
+            return 12
+        fi
+        validate_run "$after_terminal" || return $?
+        [ "$VALIDATED_RUN" = "$tail_run" ] || {
+            printf 'Requested previous run is not the unique chain tail: %s\n' \
+                "$tail_run" >&2
+            return 4
+        }
+    elif [ -n "$after_terminal" ]; then
+        printf 'No retained matching terminal run for --after-terminal\n' >&2
+        return 4
+    fi
     mkdir "$run_dir"
     run_dir="$(cd "$run_dir" && pwd -P)"
 
-    write_atomic "$run_dir/marker" "superartes-external-review:$run_id"
+    write_atomic "$run_dir/run-id" "$run_id"
     write_atomic "$run_dir/run-path" "$run_dir"
-    write_atomic "$run_dir/review-key" "$review_key"
+    write_atomic "$run_dir/marker" "superartes-external-review:$run_id"
     write_atomic "$run_dir/profile" "$profile"
     write_atomic "$run_dir/provider" "$provider"
-    write_atomic "$run_dir/run-id" "$run_id"
     write_atomic "$run_dir/provider-session" "$provider_session"
     write_atomic "$run_dir/work-dir" "$work_dir"
     if [ -n "$prompt_file" ]; then
@@ -439,8 +810,41 @@ start_run() {
             write_atomic "$run_dir/scope-value" "$scope_value"
         fi
     fi
+    if [ -n "$after_terminal" ]; then
+        write_atomic "$run_dir/previous-run" "$tail_run"
+    fi
 
+    if [ -n "${SUPERARTES_REVIEW_TEST_PRE_REVIEW_KEY_PAUSE_FILE:-}" ]; then
+        write_atomic "$SUPERARTES_REVIEW_TEST_PRE_REVIEW_KEY_PAUSE_FILE" "$$"
+        while [ -e "$SUPERARTES_REVIEW_TEST_PRE_REVIEW_KEY_PAUSE_FILE" ]; do
+            sleep 0.05
+        done
+    fi
+    # review-key is the atomic commit marker. Every artifact needed to
+    # validate and execute this run is durable before the run becomes visible
+    # to exact-key registry scans.
+    write_atomic "$run_dir/review-key" "$review_key"
+
+    if [ -n "${SUPERARTES_REVIEW_TEST_PRELAUNCH_PAUSE_FILE:-}" ]; then
+        write_atomic "$SUPERARTES_REVIEW_TEST_PRELAUNCH_PAUSE_FILE" "$$"
+        while [ -e "$SUPERARTES_REVIEW_TEST_PRELAUNCH_PAUSE_FILE" ]; do
+            sleep 0.05
+        done
+    fi
+    # The contracted supervisor streams double as durable launch intent. A
+    # future registry owner must guard supervisor identity publication once
+    # both exist instead of immediately declaring this committed run dead.
+    write_empty_atomic "$run_dir/supervisor-output"
+    write_empty_atomic "$run_dir/supervisor-log"
+    if [ -n "${SUPERARTES_REVIEW_TEST_POST_INTENT_PAUSE_FILE:-}" ]; then
+        write_atomic "$SUPERARTES_REVIEW_TEST_POST_INTENT_PAUSE_FILE" "$$"
+        while [ -e "$SUPERARTES_REVIEW_TEST_POST_INTENT_PAUSE_FILE" ]; do
+            sleep 0.05
+        done
+    fi
     launch_supervisor "$run_dir"
+    release_registry
+    trap - EXIT
     waited=0
     while [ "$waited" -lt 10 ]; do
         state="$(cat "$run_dir/state" 2>/dev/null || true)"
@@ -535,12 +939,13 @@ status_run() {
         print_status "$run_dir" "$state"
         return 0
     fi
-    if [ "$state" = running ] && reviewer_identity_matches "$run_dir"; then
+    if [ "$state" = running ] && reviewer_identity_matches "$run_dir" && \
+        supervisor_identity_matches "$run_dir"; then
         print_status "$run_dir" running
         return 3
     fi
     if supervisor_identity_matches "$run_dir"; then
-        while [ "$grace" -lt 3 ]; do
+        while [ "$grace" -lt 4 ]; do
             sleep 1
             state="$(read_artifact "$run_dir/state")"
             if is_terminal_state "$state"; then
@@ -548,7 +953,8 @@ status_run() {
                 return 0
             fi
             if [ "$state" = running ] && \
-                reviewer_identity_matches "$run_dir"; then
+                reviewer_identity_matches "$run_dir" && \
+                supervisor_identity_matches "$run_dir"; then
                 print_status "$run_dir" running
                 return 3
             fi
@@ -579,7 +985,8 @@ wait_run() {
             status_run "$run_dir"
             return 0
         fi
-        if ! reviewer_identity_matches "$run_dir"; then
+        if ! reviewer_identity_matches "$run_dir" || \
+            ! supervisor_identity_matches "$run_dir"; then
             set +e
             status_run "$run_dir"
             status_rc=$?
@@ -603,36 +1010,96 @@ cancel_run() {
     local pid
     local expected_start
     local pgid
+    local actual_pgid
     local signal_group=0
+    local kill_group=0
     local attempt=0
+    local pending_delay
+    local accept_delay
+    local cancellation_value
+    acquire_cancel_lock "$run_dir" || return $?
     state="$(read_artifact "$run_dir/state")"
     if is_terminal_state "$state"; then
         print_status "$run_dir" "$state"
         return 0
     fi
+    cancellation_value="$(read_artifact "$run_dir/cancel-requested")"
+    case "$cancellation_value" in
+        accepted:*)
+            printf 'STATE=cancellation-requested\nRUN_DIR=%s\n' "$run_dir"
+            return 0
+            ;;
+    esac
     pid="$(read_artifact "$run_dir/reviewer-pid")"
     expected_start="$(read_artifact "$run_dir/reviewer-start")"
+    pgid="$(read_artifact "$run_dir/reviewer-pgid")"
+    write_atomic "$run_dir/cancel-requested" \
+        "pending:$(date +%s)"
+
+    # Deterministic test hook proving pending evidence precedes the final
+    # process-identity validation. Invalid values deliberately disable it.
+    pending_delay="${SUPERARTES_REVIEW_TEST_CANCEL_PENDING_DELAY:-0}"
+    case "$pending_delay" in
+        ''|*[!0-9]*) pending_delay=0 ;;
+    esac
+    if [ "$pending_delay" -gt 0 ]; then
+        sleep "$pending_delay"
+    fi
+
     if [ -z "$pid" ] || [ -z "$expected_start" ] || \
         ! process_identity_matches "$pid" "$expected_start"; then
+        write_atomic "$run_dir/cancel-requested" \
+            "rejected:identity-mismatch:$(date +%s)"
         print_status "$run_dir" indeterminate
         return 4
     fi
-    pgid="$(read_artifact "$run_dir/reviewer-pgid")"
-    if [ "$pgid" = "$pid" ]; then
+    actual_pgid="$(process_group_id "$pid")"
+    if [ "$pgid" = "$pid" ] && [ "$actual_pgid" = "$pid" ]; then
         signal_group=1
+    fi
+    if [ "$signal_group" -eq 1 ]; then
+        # Keep the final identity check branch-local so successful validation
+        # is immediately followed by the signal for this exact target.
+        if ! process_identity_matches "$pid" "$expected_start"; then
+            write_atomic "$run_dir/cancel-requested" \
+                "rejected:identity-mismatch:$(date +%s)"
+            print_status "$run_dir" indeterminate
+            return 4
+        fi
         if ! kill -TERM -- "-$pid" 2>/dev/null; then
+            write_atomic "$run_dir/cancel-requested" \
+                "rejected:signal-failed:$(date +%s)"
             print_status "$run_dir" indeterminate
             return 4
         fi
     else
-        printf 'Recorded reviewer PGID %s does not match validated PID %s; signalling PID only\n' \
-            "$pgid" "$pid" >> "$run_dir/supervisor-log"
-        if ! kill -TERM "$pid" 2>/dev/null; then
+        if ! process_identity_matches "$pid" "$expected_start"; then
+            write_atomic "$run_dir/cancel-requested" \
+                "rejected:identity-mismatch:$(date +%s)"
             print_status "$run_dir" indeterminate
             return 4
         fi
+        if ! kill -TERM "$pid" 2>/dev/null; then
+            write_atomic "$run_dir/cancel-requested" \
+                "rejected:signal-failed:$(date +%s)"
+            print_status "$run_dir" indeterminate
+            return 4
+        fi
+        printf 'Recorded/current reviewer PGID %s/%s does not match validated PID %s; signalling PID only (tree-wide cancellation unavailable)\n' \
+            "$pgid" "$actual_pgid" "$pid" >> "$run_dir/supervisor-log"
     fi
-    write_atomic "$run_dir/cancel-requested" "$(date +%s)"
+
+    # Deterministic test hook for the reviewer-exit race between TERM and
+    # accepted publication. The supervisor boundedly waits on pending.
+    accept_delay="${SUPERARTES_REVIEW_TEST_CANCEL_ACCEPT_DELAY:-0}"
+    case "$accept_delay" in
+        ''|*[!0-9]*) accept_delay=0 ;;
+    esac
+    if [ "$accept_delay" -gt 0 ]; then
+        sleep "$accept_delay"
+    fi
+    write_atomic "$run_dir/cancel-requested" \
+        "accepted:$(date +%s)"
 
     while [ "$attempt" -lt 3 ]; do
         sleep 1
@@ -642,14 +1109,38 @@ cancel_run() {
         fi
         attempt=$((attempt + 1))
     done
-    if process_identity_matches "$pid" "$expected_start"; then
-        if [ "$signal_group" -eq 1 ]; then
+    actual_pgid="$(process_group_id "$pid")"
+    if [ "$signal_group" -eq 1 ] && [ "$actual_pgid" = "$pid" ]; then
+        kill_group=1
+    fi
+    if [ "$kill_group" -eq 1 ]; then
+        if process_identity_matches "$pid" "$expected_start"; then
             kill -KILL -- "-$pid" 2>/dev/null || true
-        else
+        fi
+    else
+        if process_identity_matches "$pid" "$expected_start"; then
             kill -KILL "$pid" 2>/dev/null || true
+            if [ "$signal_group" -eq 1 ]; then
+                printf 'Reviewer PGID changed after TERM; escalating only the revalidated PID %s\n' \
+                    "$pid" >> "$run_dir/supervisor-log"
+            fi
         fi
     fi
     printf 'STATE=cancellation-requested\nRUN_DIR=%s\n' "$run_dir"
+}
+
+prepare_cancel_lock_for_cleanup() {
+    local run_dir="$1"
+    local lock_dir="$run_dir/.cancel-lock"
+    [ -e "$lock_dir" ] || [ -L "$lock_dir" ] || return 0
+    if cancel_lock_owner_is_dead "$lock_dir" && \
+        reclaim_stale_cancel_lock "$lock_dir"; then
+        printf 'Reclaimed stale cancellation lock: %s\n' "$lock_dir" >&2
+        return 0
+    fi
+    printf 'Cleanup refused: cancellation lock is live, unverifiable, or malformed: %s\n' \
+        "$lock_dir" >&2
+    return 66
 }
 
 cleanup_run() {
@@ -663,6 +1154,7 @@ cleanup_run() {
     is_terminal_state "$state" || return 66
     reviewer_identity_matches "$run_dir" && return 66
     supervisor_identity_matches "$run_dir" && return 66
+    prepare_cancel_lock_for_cleanup "$run_dir" || return $?
     for artifact in marker run-path review-key profile provider run-id \
         provider-session work-dir scope-kind scope-value state started-at \
         completed-at supervisor-pid supervisor-start reviewer-pid \
@@ -679,6 +1171,21 @@ cleanup_run() {
     printf 'STATE=cleaned\nRUN_DIR=%s\n' "$run_dir"
 }
 
+supervisor_entry() {
+    local test_start_delay
+    test_start_delay="${SUPERARTES_REVIEW_TEST_SUPERVISOR_START_DELAY:-0}"
+    case "$test_start_delay" in
+        ''|*[!0-9]*) test_start_delay=0 ;;
+    esac
+    if [ -n "${SUPERARTES_REVIEW_TEST_SUPERVISOR_START_READY_FILE:-}" ]; then
+        write_atomic "$SUPERARTES_REVIEW_TEST_SUPERVISOR_START_READY_FILE" "$$"
+    fi
+    if [ "$test_start_delay" -gt 0 ]; then
+        sleep "$test_start_delay"
+    fi
+    supervise_run "$@"
+}
+
 case "${1:---help}" in
     --help|-h) usage ;;
     check) shift; check_profile "$@" ;;
@@ -687,6 +1194,6 @@ case "${1:---help}" in
     wait) shift; wait_run "$@" ;;
     cancel) shift; cancel_run "$@" ;;
     cleanup) shift; cleanup_run "$@" ;;
-    _supervise) shift; supervise_run "$@" ;;
+    _supervise) shift; supervisor_entry "$@" ;;
     *) usage >&2; exit 64 ;;
 esac

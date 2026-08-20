@@ -48,6 +48,44 @@ fixture_wait_for_identity_loss() {
     return 1
 }
 
+fixture_wait_for_file() {
+    local path="$1"
+    local attempt=0
+    while [ "$attempt" -lt 50 ]; do
+        [ -s "$path" ] && return 0
+        sleep 0.1
+        attempt=$((attempt + 1))
+    done
+    return 1
+}
+
+fixture_wait_for_path_absence() {
+    local path="$1"
+    local attempt=0
+    while [ "$attempt" -lt 50 ]; do
+        [ ! -e "$path" ] && return 0
+        sleep 0.1
+        attempt=$((attempt + 1))
+    done
+    return 1
+}
+
+fixture_wait_for_file_prefix() {
+    local path="$1"
+    local prefix="$2"
+    local value
+    local attempt=0
+    while [ "$attempt" -lt 50 ]; do
+        value="$(cat "$path" 2>/dev/null || true)"
+        case "$value" in
+            "$prefix"*) return 0 ;;
+        esac
+        sleep 0.1
+        attempt=$((attempt + 1))
+    done
+    return 1
+}
+
 fixture_terminate_process() {
     local pid="$1"
     local expected="$2"
@@ -162,6 +200,16 @@ assert_eq() {
     fi
 }
 
+assert_one_of() {
+    local allowed="$1"
+    local actual="$2"
+    local message="$3"
+    case " $allowed " in
+        *" $actual "*) pass "$message" ;;
+        *) fail "$message (expected one of '$allowed', got '$actual')" ;;
+    esac
+}
+
 assert_file_contains() {
     local path="$1"
     local text="$2"
@@ -246,8 +294,16 @@ done
 
 log_base="${FAKE_LOG_DIR:?}/claude-$session_id"
 printf '%s\n' "$*" > "$log_base.args"
+printf '%s\0' "$@" > "$log_base.argv"
 printf '%s\n' "$PWD" > "$log_base.pwd"
 cat > "$log_base.stdin"
+if [ "${FAKE_SPAWN_CHILD:-0}" -eq 1 ]; then
+    sleep 60 &
+    child_pid=$!
+    printf '%s\n' "$child_pid" > "$log_base.child-pid"
+    { LC_ALL=C ps -o lstart= -p "$child_pid" 2>/dev/null || true; } | \
+        sed 's/^[[:space:]]*//' > "$log_base.child-start"
+fi
 sleep "${FAKE_REVIEW_DELAY:-0}"
 if [ "${FAKE_REVIEW_EXIT:-0}" -ne 0 ]; then
     if [ "${FAKE_RESULT_BEFORE_EXIT:-0}" -eq 1 ]; then
@@ -296,6 +352,7 @@ done
 run_name="$(basename "$(dirname "$output")")"
 log_base="${FAKE_LOG_DIR:?}/codex-$run_name"
 printf '%s\n' "$*" > "$log_base.args"
+printf '%s\0' "$@" > "$log_base.argv"
 printf '%s\n' "$PWD" > "$log_base.pwd"
 if [ "${2:-}" != 'review' ]; then
     cat > "$log_base.stdin"
