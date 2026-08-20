@@ -1,0 +1,4 @@
+operations=check,start,status,wait,cancel,cleanup
+profiles=claude-prompt,codex-prompt,codex-review
+states=running,exited,launch-failed,cancelled,indeterminate
+artifacts=marker,run-path,review-key,profile,provider,run-id,provider-session,work-dir,scope-kind,scope-value,state,started-at,completed-at,supervisor-pid,supervisor-start,reviewer-pid,reviewer-start,reviewer-pgid,exit-code,prompt,result,reviewer-output,reviewer-log,supervisor-output,supervisor-log,previous-run,cancel-requested
