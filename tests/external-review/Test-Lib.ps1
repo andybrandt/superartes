@@ -662,10 +662,7 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 Start-Sleep -Seconds 60
 '@
-    $powerShell = '%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe'
-    if ($PSVersionTable.PSEdition -eq 'Core') {
-        $powerShell = 'pwsh.exe'
-    }
+    $powerShell = 'pwsh.exe'
     Write-Utf8NoBom $claudeCommand "@echo off`r`nsetlocal`r`nset `"SUPERARTES_FAKE_PROFILE=claude`"`r`n$powerShell -NoProfile -ExecutionPolicy Bypass -File `"%~dp0fake-reviewer.ps1`" %*`r`nexit /b %errorlevel%`r`n"
     Write-Utf8NoBom $codexCommand "@echo off`r`nsetlocal`r`nset `"SUPERARTES_FAKE_PROFILE=codex`"`r`n$powerShell -NoProfile -ExecutionPolicy Bypass -File `"%~dp0fake-reviewer.ps1`" %*`r`nexit /b %errorlevel%`r`n"
 }

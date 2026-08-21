@@ -102,9 +102,16 @@ function Test-StaticSecurityInvariants {
     $source = [IO.File]::ReadAllText($RunnerPath)
     $testSourceBytes = [IO.File]::ReadAllBytes($PSCommandPath)
     if (@($testSourceBytes | Where-Object { $_ -gt 0x7F }).Count -eq 0) {
-        Pass-Test 'PowerShell 5.1 test source is ASCII-safe without an encoding declaration'
+        Pass-Test 'PowerShell test source is ASCII-safe without an encoding declaration'
     }
-    else { Fail-Test 'PowerShell 5.1 test source is ASCII-safe without an encoding declaration' }
+    else { Fail-Test 'PowerShell test source is ASCII-safe without an encoding declaration' }
+    if ($source.Contains("RedirectStandardInput = '\\.\NUL'") -and
+        $source.Contains("-RedirectStandardInput '\\.\NUL'") -and
+        -not $source.Contains("RedirectStandardInput = 'NUL'") -and
+        -not $source.Contains("-RedirectStandardInput 'NUL'")) {
+        Pass-Test 'detached launches use the absolute Windows null stream'
+    }
+    else { Fail-Test 'detached launches use the absolute Windows null stream' }
     if (-not $source.Contains('& $reviewerCommand') -and
         -not $source.Contains('& $launcher')) {
         Pass-Test 'batch-capable reviewer commands are never invoked through the PowerShell call operator'

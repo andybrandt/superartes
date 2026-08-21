@@ -63,7 +63,7 @@ Add two implementations of the same public protocol:
 - `skills/external-review/invoke-reviewer.sh` for Linux, macOS, and WSL.
 - `skills/external-review/invoke-reviewer.ps1` for native Windows.
 
-The Bash adapter must not require Python, Node.js, `jq`, or PowerShell. It uses `uuidgen` when available and a pure Bash plus `/dev/urandom` fallback. The PowerShell adapter targets Windows PowerShell 5.1 and must also work under PowerShell 7.
+The Bash adapter must not require Python, Node.js, `jq`, or PowerShell. It uses `uuidgen` when available and a pure Bash plus `/dev/urandom` fallback. The Windows adapter targets PowerShell 7 or later. Windows PowerShell 5.1 is not supported.
 
 Native Windows prefers the PowerShell adapter even when Git Bash is installed. POSIX systems and WSL use Bash.
 
@@ -268,7 +268,7 @@ Native Windows support must not depend on Git Bash.
 
 The PowerShell adapter:
 
-- Uses syntax compatible with Windows PowerShell 5.1 and PowerShell 7.
+- Uses PowerShell 7-compatible syntax and runs natively on Windows.
 - Is invoked with a documented `-NoProfile` and appropriate execution-policy form so repository scripts can run without loading user profiles.
 - Uses `[guid]::NewGuid()` and native temporary-path APIs.
 - Resolves whether `claude` or `codex` is a native executable or launcher shim and records the actual reviewer process tree rather than assuming the first process is the model CLI.
@@ -385,7 +385,7 @@ Implementation stays on the existing `external-for-codex` branch and uses no wor
 
 ## External Review Decisions
 
-The independent Claude review produced several changes incorporated above: explicit supervisors, mechanical review locks, chunked `wait`, mechanical states, capability preflight, process-identity hardening, PowerShell 5.1 details, shared lazy reference documentation, expanded lifecycle tests, cross-provider management, and a minor-version release.
+The independent Claude review produced several changes incorporated above: explicit supervisors, mechanical review locks, chunked `wait`, mechanical states, capability preflight, process-identity hardening, native PowerShell details, shared lazy reference documentation, expanded lifecycle tests, cross-provider management, and a minor-version release.
 
 The following suggestions were intentionally declined:
 

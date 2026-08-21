@@ -6,7 +6,7 @@
 
 **Architecture:** Two platform adapters implement one lifecycle contract and three fixed reviewer profiles: `claude-prompt`, `codex-prompt`, and `codex-review`. The skills retain reviewer selection, prompt composition, result interpretation, and triage; a lazy reference contains operational commands, while the adapters own preflight, stable review locking, detached supervision, waiting, cancellation, and safe cleanup.
 
-**Tech Stack:** Bash 3-compatible shell, Windows PowerShell 5.1-compatible PowerShell, Claude Code CLI, Codex CLI, Git, Markdown skills, shell-based deterministic tests with fake CLIs.
+**Tech Stack:** Bash 3-compatible shell, PowerShell 7+ on Windows, Claude Code CLI, Codex CLI, Git, Markdown skills, shell-based deterministic tests with fake CLIs.
 
 **Authoritative spec:** `docs/specs/2026-08-19-universal-external-review-design.md`
 
@@ -1031,11 +1031,9 @@ function Write-AtomicText {
 }
 ```
 
-Keep this as a simple script entry point. Windows PowerShell 5.1 invoked with
-`powershell.exe -File` cannot populate an array-valued script parameter, while
-`CmdletBinding` makes the automatic `$args` collection unavailable. The first
-positional value binds to `$Operation`; the simple script's `$args` collection
-retains every subsequent lifecycle argument.
+Keep this as a simple script entry point. The first positional value binds to
+`$Operation`; the simple script's `$args` collection retains every subsequent
+lifecycle argument when invoked with `pwsh.exe -File`.
 
 Implement `Show-Usage`, `Test-Profile`, `Resolve-ReviewerCommand`, and the same public dispatch as Bash. `Test-Profile` uses `Get-Command`, invokes `--version` and profile help, and checks the same required flags.
 
@@ -1057,7 +1055,7 @@ $Supervisor = Start-Process -FilePath $PowerShellExe -ArgumentList $Arguments `
     -WindowStyle Hidden -PassThru
 ```
 
-The explicit embedded quotes are required because Windows PowerShell joins `-ArgumentList` elements without quoting; the deterministic test must exercise both `$PSCommandPath` and `$RunDirectory` containing spaces. The internal supervisor, not its parent, writes its own PID and `StartTime` as `supervisor-pid` and `supervisor-start` before launching the reviewer.
+The explicit embedded quotes are required because `Start-Process` joins `-ArgumentList` elements without quoting; the deterministic test must exercise both `$PSCommandPath` and `$RunDirectory` containing spaces. The internal supervisor, not its parent, writes its own PID and `StartTime` as `supervisor-pid` and `supervisor-start` before launching the reviewer.
 
 The internal supervisor resolves the actual launcher returned by `Get-Command`, starts the reviewer with `-RedirectStandardInput`, `-RedirectStandardOutput`, and `-RedirectStandardError` as required by the profile, records the launched shim PID and `StartTime`, waits with `WaitForExit()`, captures `ExitCode`, and writes the terminal state. Descendants are discovered dynamically for cancellation rather than assuming a `.cmd` shim is the model process. `start` uses the same ten-second readiness handshake and exit mapping as Bash; a guard expiry retains the run and returns `4`.
 
@@ -1129,7 +1127,7 @@ python3 tests/codex-plugin/validate-codex-plugin.py
 git diff --check
 ```
 
-Expected: pass. If `pwsh` is available, also parse and run the PowerShell files, but record that this supplements rather than replaces native Windows PowerShell 5.1.
+Expected: pass. If `pwsh` is available on Linux, also parse and run the portable PowerShell checks, but record that this supplements rather than replaces native PowerShell 7 verification on Windows.
 
 Invoke `superartes:commit-message`, then:
 
@@ -1146,10 +1144,10 @@ Ask Andy how he wants the committed branch made available on his Windows machine
 
 ```powershell
 # Harness RED check against a deliberately absent runner - this command must fail for that reason.
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/external-review/Run-Tests.ps1 -RunnerPath C:\definitely-missing\invoke-reviewer.ps1
+pwsh.exe -NoProfile -ExecutionPolicy Bypass -File tests/external-review/Run-Tests.ps1 -RunnerPath C:\definitely-missing\invoke-reviewer.ps1
 
 # Complete deterministic suite against the real adapter.
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/external-review/Run-Tests.ps1
+pwsh.exe -NoProfile -ExecutionPolicy Bypass -File tests/external-review/Run-Tests.ps1
 ```
 
 Then, with an explicit warning that these commands require credentials, network access, user approval, and spend model tokens, run the documented native Windows live checks for `claude-prompt`, `codex-prompt`, and `codex-review`. Use a disposable Git repository and document fixture under a path containing spaces. Verify Claude's PowerShell Git permissions, all three native results, provider session identity, process-tree cancellation, and cleanup.
@@ -1252,12 +1250,12 @@ POSIX forms, where `$ADAPTER` is the quoted absolute script path:
 Native Windows forms, where `$Adapter` is the literal absolute `.ps1` path:
 
 ```powershell
-& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter start claude-prompt $ReviewKey $WorkDir $PromptFile
-& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter start codex-prompt $ReviewKey $WorkDir $PromptFile
-& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter start codex-review $ReviewKey $WorkDir uncommitted
-& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter start codex-review $ReviewKey $WorkDir base $BaseRef
-& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter start codex-review $ReviewKey $WorkDir commit $CommitSha
-& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter wait $RunDir $TimeoutSeconds
+& pwsh.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter start claude-prompt $ReviewKey $WorkDir $PromptFile
+& pwsh.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter start codex-prompt $ReviewKey $WorkDir $PromptFile
+& pwsh.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter start codex-review $ReviewKey $WorkDir uncommitted
+& pwsh.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter start codex-review $ReviewKey $WorkDir base $BaseRef
+& pwsh.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter start codex-review $ReviewKey $WorkDir commit $CommitSha
+& pwsh.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter wait $RunDir $TimeoutSeconds
 ```
 
 Use `--after-terminal PREVIOUS_RUN` immediately after `start` on both adapters.
@@ -1681,7 +1679,7 @@ Insert at the top after `# Changelog`:
 ### Added
 
 - Cross-provider managed external review with stable request locks, detached supervisors, resumable waiting, native result preservation, and safe cleanup.
-- Native Windows PowerShell 5.1+ adapter with the same contract as the POSIX Bash adapter.
+- Native Windows PowerShell 7+ adapter with the same contract as the POSIX Bash adapter.
 
 ### Changed
 

@@ -850,7 +850,7 @@ function Start-ReviewerProcess {
         FilePath = $powerShellExecutable
         ArgumentList = $argumentLine
         WorkingDirectory = $workDirectory
-        RedirectStandardInput = 'NUL'
+        RedirectStandardInput = '\\.\NUL'
         WindowStyle = 'Hidden'
         PassThru = $true
     }
@@ -1057,7 +1057,7 @@ function Start-HiddenSupervisor {
         'Supervise', (Quote-WindowsArgument $RunDirectory -AlwaysQuote)
     ) -join ' '
     return Start-Process -FilePath $powerShellExecutable -ArgumentList $argumentLine `
-        -RedirectStandardInput 'NUL' `
+        -RedirectStandardInput '\\.\NUL' `
         -RedirectStandardOutput (Join-Path $RunDirectory 'supervisor-output') `
         -RedirectStandardError (Join-Path $RunDirectory 'supervisor-log') `
         -WindowStyle Hidden -PassThru
