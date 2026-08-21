@@ -16,3 +16,6 @@ hooks/session-start text eol=lf
 *.png binary
 *.jpg binary
 *.gif binary
+
+# PowerShell source is kept LF like the rest of the plugin text files
+*.ps1 text eol=lf

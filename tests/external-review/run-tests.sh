@@ -66,85 +66,58 @@ test_help_contract() {
 }
 
 test_signals_have_branch_local_final_identity_validation() {
-    local selection_line
-    local branch_line
+    local mismatch_line
+    local rejection_line
+    local mismatch_return_line
     local group_validation_line
     local group_signal_line
-    local pid_validation_line
-    local pid_signal_line
-    local diagnostic_line
-    local kill_selection_line
-    local kill_branch_line
     local group_kill_validation_line
     local group_kill_line
-    local pid_kill_validation_line
-    local pid_kill_line
-    local kill_diagnostic_line
-    selection_line="$(awk '/signal_group=1/ { print NR }' "$RUNNER")"
-    branch_line="$(awk \
-        '/if \[ "\$signal_group" -eq 1 \]; then/ { print NR; exit }' \
+    mismatch_line="$(awk \
+        '/if \[ "\$pgid" != "\$pid" \] \|\| \[ "\$actual_pgid" != "\$pid" \]; then/ { print NR; exit }' \
+        "$RUNNER")"
+    rejection_line="$(awk '/rejected:pgid-mismatch:/ { print NR; exit }' \
+        "$RUNNER")"
+    mismatch_return_line="$(awk \
+        '/if \[ "\$pgid" != "\$pid" \] \|\| \[ "\$actual_pgid" != "\$pid" \]; then/ { mismatch=1; next } mismatch && /return 4/ { print NR; exit }' \
         "$RUNNER")"
     group_validation_line="$(awk \
-        '/if \[ "\$signal_group" -eq 1 \]; then/ { branch=1; next } branch && /kill -TERM -- "-\$pid"/ { exit } branch && /if ! process_identity_matches "\$pid" "\$expected_start"/ { print NR; exit }' \
+        '/kill -TERM -- "-\$pid"/ { print validation; exit } /if ! process_identity_matches "\$pid" "\$expected_start"/ { validation=NR }' \
         "$RUNNER")"
-    group_signal_line="$(awk '/kill -TERM -- "-\$pid"/ { print NR }' \
-        "$RUNNER")"
-    pid_validation_line="$(awk \
-        '/if ! process_identity_matches "\$pid" "\$expected_start"/ { line=NR } /if ! kill -TERM "\$pid"/ { print line; exit }' \
-        "$RUNNER")"
-    pid_signal_line="$(awk '/if ! kill -TERM "\$pid"/ { print NR }' "$RUNNER")"
-    diagnostic_line="$(awk '/Recorded\/current reviewer PGID/ { print NR }' \
-        "$RUNNER")"
-    kill_selection_line="$(awk '/kill_group=1/ { print NR; exit }' "$RUNNER")"
-    kill_branch_line="$(awk \
-        '/if \[ "\$kill_group" -eq 1 \]; then/ { print NR; exit }' \
+    group_signal_line="$(awk '/kill -TERM -- "-\$pid"/ { print NR; exit }' \
         "$RUNNER")"
     group_kill_validation_line="$(awk \
-        '/if \[ "\$kill_group" -eq 1 \]; then/ { branch=1; next } branch && /kill -KILL -- "-\$pid"/ { exit } branch && /if process_identity_matches "\$pid" "\$expected_start"/ { print NR; exit }' \
+        '/kill -KILL -- "-\$pid"/ { print validation; exit } /if process_identity_matches "\$pid" "\$expected_start"/ { validation=NR }' \
         "$RUNNER")"
     group_kill_line="$(awk '/kill -KILL -- "-\$pid"/ { print NR; exit }' \
         "$RUNNER")"
-    pid_kill_validation_line="$(awk \
-        '/if process_identity_matches "\$pid" "\$expected_start"/ { line=NR } /kill -KILL "\$pid"/ { print line; exit }' \
-        "$RUNNER")"
-    pid_kill_line="$(awk '/kill -KILL "\$pid"/ { print NR; exit }' "$RUNNER")"
-    kill_diagnostic_line="$(awk \
-        '/Reviewer PGID changed after TERM/ { print NR; exit }' "$RUNNER")"
-    if [ -n "$selection_line" ] && [ -n "$branch_line" ] && \
-        [ -n "$group_validation_line" ] && [ -n "$group_signal_line" ] && \
-        [ "$selection_line" -lt "$branch_line" ] && \
-        [ "$branch_line" -lt "$group_validation_line" ] && \
+    if [ -n "$mismatch_line" ] && [ -n "$rejection_line" ] && \
+        [ -n "$mismatch_return_line" ] && [ -n "$group_signal_line" ] && \
+        [ "$mismatch_line" -lt "$rejection_line" ] && \
+        [ "$rejection_line" -lt "$mismatch_return_line" ] && \
+        [ "$mismatch_return_line" -lt "$group_signal_line" ]; then
+        pass "PGID mismatch rejects before any reviewer signal"
+    else
+        fail "PGID mismatch rejects before any reviewer signal"
+    fi
+    if [ -n "$group_validation_line" ] && [ -n "$group_signal_line" ] && \
         [ "$group_validation_line" -lt "$group_signal_line" ]; then
-        pass "group branch validates identity locally before TERM"
+        pass "validated group identity check is immediately before TERM path"
     else
-        fail "group branch validates identity locally before TERM"
+        fail "validated group identity check is immediately before TERM path"
     fi
-    if [ -n "$group_signal_line" ] && [ -n "$pid_validation_line" ] && \
-        [ -n "$pid_signal_line" ] && [ -n "$diagnostic_line" ] && \
-        [ "$group_signal_line" -lt "$pid_validation_line" ] && \
-        [ "$pid_validation_line" -lt "$pid_signal_line" ] && \
-        [ "$pid_signal_line" -lt "$diagnostic_line" ]; then
-        pass "PID fallback branch validates identity locally before TERM and diagnostic"
-    else
-        fail "PID fallback branch validates identity locally before TERM and diagnostic"
-    fi
-    if [ -n "$kill_selection_line" ] && [ -n "$kill_branch_line" ] && \
-        [ -n "$group_kill_validation_line" ] && [ -n "$group_kill_line" ] && \
-        [ "$kill_selection_line" -lt "$kill_branch_line" ] && \
-        [ "$kill_branch_line" -lt "$group_kill_validation_line" ] && \
+    if [ -n "$group_kill_validation_line" ] && \
+        [ -n "$group_kill_line" ] && \
         [ "$group_kill_validation_line" -lt "$group_kill_line" ]; then
-        pass "group escalation validates identity locally before KILL"
+        pass "group escalation validates identity immediately before KILL path"
     else
-        fail "group escalation validates identity locally before KILL"
+        fail "group escalation validates identity immediately before KILL path"
     fi
-    if [ -n "$group_kill_line" ] && [ -n "$pid_kill_validation_line" ] && \
-        [ -n "$pid_kill_line" ] && [ -n "$kill_diagnostic_line" ] && \
-        [ "$group_kill_line" -lt "$pid_kill_validation_line" ] && \
-        [ "$pid_kill_validation_line" -lt "$pid_kill_line" ] && \
-        [ "$pid_kill_line" -lt "$kill_diagnostic_line" ]; then
-        pass "PID fallback escalation validates identity locally before KILL and diagnostic"
+    if ! grep -F 'kill -TERM "$pid"' "$RUNNER" >/dev/null && \
+        ! grep -F 'kill -KILL "$pid"' "$RUNNER" >/dev/null; then
+        pass "cancellation has no unsafe PID-only signal fallback"
     else
-        fail "PID fallback escalation validates identity locally before KILL and diagnostic"
+        fail "cancellation has no unsafe PID-only signal fallback"
     fi
 }
 
@@ -383,11 +356,17 @@ test_symlink_root_and_cleanup() {
 test_cleanup_preserves_unknown_evidence() {
     local prompt="$TEST_TMP/cleanup-evidence-prompt.txt"
     local run_dir
+    local snapshot="$TEST_TMP/cleanup-evidence-snapshot"
+    local artifact
     printf 'cleanup evidence review\n' > "$prompt"
     start_run 0 claude-prompt 'cleanup-evidence|project|spec' \
         "$TEST_TMP" "$prompt"
     run_dir="$LAST_RUN"
     wait_for_run "$run_dir" 10 0
+    mkdir "$snapshot"
+    for artifact in marker run-path review-key profile state result; do
+        cp -- "$run_dir/$artifact" "$snapshot/$artifact"
+    done
     printf 'keep this evidence\n' > "$run_dir/unknown-evidence"
     run_captured "$RUNNER" cleanup "$run_dir"
     assert_eq "66" "$CAPTURE_RC" \
@@ -397,6 +376,13 @@ test_cleanup_preserves_unknown_evidence() {
     else
         fail "cleanup preserves unknown evidence"
     fi
+    for artifact in marker run-path review-key profile state result; do
+        if cmp -s -- "$snapshot/$artifact" "$run_dir/$artifact"; then
+            pass "cleanup refusal preserves standard evidence bytes for $artifact"
+        else
+            fail "cleanup refusal preserves standard evidence bytes for $artifact"
+        fi
+    done
 }
 
 test_supervisor_fallback_and_started_at() {
@@ -512,6 +498,8 @@ test_cancel_validates_identity_and_group() {
     local fake_log
     local sentinel_pid
     local sentinel_pgid
+    local sentinel_start
+    local reviewer_pgid
     local cancel_output="$TEST_TMP/cancel-protocol.out"
     local cancel_rc_file="$TEST_TMP/cancel-protocol.rc"
     local cancel_pid
@@ -640,33 +628,67 @@ test_cancel_validates_identity_and_group() {
     fi
     wait_for_run "$run_dir" 10 0
 
-    export FAKE_REVIEW_DELAY=10
+    export FAKE_REVIEW_DELAY=20 FAKE_SPAWN_CHILD=1
     start_run 0 claude-prompt 'cancel-pgid-mismatch|project|spec' \
         "$TEST_TMP" "$prompt"
     run_dir="$LAST_RUN"
+    reviewer_pid="$(cat "$run_dir/reviewer-pid")"
+    reviewer_start="$(cat "$run_dir/reviewer-start")"
+    reviewer_pgid="$(cat "$run_dir/reviewer-pgid")"
+    fake_log="$FAKE_LOG_DIR/claude-$(cat "$run_dir/provider-session")"
+    if fixture_wait_for_file "$fake_log.child-pid"; then
+        pass "PGID mismatch fixture reviewer child starts"
+    else
+        fail "PGID mismatch fixture reviewer child starts"
+        return
+    fi
+    child_pid="$(cat "$fake_log.child-pid")"
+    child_start="$(cat "$fake_log.child-start")"
     setsid sleep 20 &
     sentinel_pid=$!
     sleep 0.1
+    sentinel_start="$(fixture_process_start_identity "$sentinel_pid")"
     sentinel_pgid="$(LC_ALL=C ps -o pgid= -p "$sentinel_pid" | tr -d '[:space:]')"
     printf '%s\n' "$sentinel_pgid" > "$run_dir/reviewer-pgid"
     run_captured "$RUNNER" cancel "$run_dir"
-    assert_eq "0" "$CAPTURE_RC" "PGID mismatch uses safe PID-only cancellation"
-    if kill -0 "$sentinel_pid" 2>/dev/null; then
-        pass "PGID mismatch does not signal unrelated process group"
+    assert_eq "4" "$CAPTURE_RC" "PGID mismatch cancellation fails closed"
+    assert_string_contains "$CAPTURE_OUTPUT" 'STATE=indeterminate' \
+        "PGID mismatch reports indeterminate"
+    assert_file_contains "$run_dir/cancel-requested" \
+        'rejected:pgid-mismatch:' \
+        "PGID mismatch records rejected evidence"
+    if fixture_process_identity_matches "$reviewer_pid" "$reviewer_start"; then
+        pass "PGID mismatch sends no signal to reviewer"
     else
-        fail "PGID mismatch does not signal unrelated process group"
+        fail "PGID mismatch sends no signal to reviewer"
     fi
+    if fixture_process_identity_matches "$child_pid" "$child_start"; then
+        pass "PGID mismatch sends no signal to reviewer child"
+    else
+        fail "PGID mismatch sends no signal to reviewer child"
+    fi
+    if fixture_process_identity_matches "$sentinel_pid" "$sentinel_start"; then
+        pass "PGID mismatch sends no signal to unrelated process group"
+    else
+        fail "PGID mismatch sends no signal to unrelated process group"
+    fi
+    printf '%s\n' "$reviewer_pgid" > "$run_dir/reviewer-pgid"
+    run_captured "$RUNNER" cancel "$run_dir"
+    assert_eq "0" "$CAPTURE_RC" \
+        "identity-safe cancellation succeeds after restoring reviewer PGID"
     wait_for_run "$run_dir" 10 0
     assert_eq "cancelled" "$(cat "$run_dir/state")" \
-        "PID-only fallback reaches cancelled"
-    assert_file_contains "$run_dir/supervisor-log" \
-        'signalling PID only' \
-        "PGID mismatch records tree-wide cancellation diagnostic"
-    kill -TERM "$sentinel_pid" 2>/dev/null || true
+        "restored validated tree cancellation reaches cancelled"
+    if fixture_wait_for_identity_loss "$child_pid" "$child_start"; then
+        pass "identity-safe fixture cancellation terminates reviewer child"
+    else
+        fail "identity-safe fixture cancellation terminates reviewer child"
+    fi
+    fixture_terminate_process "$sentinel_pid" "$sentinel_start" 1
     set +e
     wait "$sentinel_pid" 2>/dev/null
     set -e
-    unset FAKE_REVIEW_DELAY
+    unset FAKE_REVIEW_DELAY FAKE_SPAWN_CHILD
 }
 
 test_status_identity_edge_cases() {
@@ -1076,6 +1098,70 @@ test_registry_lock_recovery_and_malformed_refusal() {
         "malformed lock prints exact manual diagnostic"
     rm -f -- "$lock_dir/owner-pid" "$lock_dir/owner-start"
     rmdir "$lock_dir"
+
+    local outside_lock="$TEST_TMP/outside-registry-lock"
+    local outside_snapshot="$TEST_TMP/outside-registry-snapshot"
+    mkdir "$outside_lock" "$outside_snapshot"
+    printf '99999999\n' > "$outside_lock/owner-pid"
+    printf 'Mon Jan  1 00:00:00 2001\n' > "$outside_lock/owner-start"
+    printf 'outside sentinel\n' > "$outside_lock/sentinel"
+    cp -- "$outside_lock/owner-pid" "$outside_snapshot/owner-pid"
+    cp -- "$outside_lock/owner-start" "$outside_snapshot/owner-start"
+    cp -- "$outside_lock/sentinel" "$outside_snapshot/sentinel"
+    ln -s "$outside_lock" "$lock_dir"
+    run_captured "$RUNNER" start claude-prompt 'registry|symlink' \
+        "$TEST_TMP" "$prompt"
+    assert_eq "75" "$CAPTURE_RC" \
+        "registry symlink is retained as unavailable"
+    for artifact in owner-pid owner-start sentinel; do
+        if cmp -s -- "$outside_snapshot/$artifact" "$outside_lock/$artifact"; then
+            pass "registry symlink refusal preserves outside $artifact bytes"
+        else
+            fail "registry symlink refusal preserves outside $artifact bytes"
+        fi
+    done
+    if [ -L "$lock_dir" ]; then
+        pass "registry symlink refusal preserves the link itself"
+    else
+        fail "registry symlink refusal preserves the link itself"
+    fi
+    rm -f -- "$lock_dir"
+}
+
+test_default_review_root_is_private() {
+    local default_parent="$TEST_TMP/default-root-parent"
+    local default_root="$default_parent/superartes-external-review-$(id -u)"
+    local legacy_root="$default_parent/superartes-external-review"
+    local outside="$TEST_TMP/default-root-outside"
+    local mode
+    mkdir "$default_parent" "$outside"
+    printf 'default root sentinel\n' > "$outside/sentinel"
+    ln -s "$outside" "$default_root"
+    run_captured env -u SUPERARTES_REVIEW_TMPDIR TMPDIR="$default_parent" \
+        "$RUNNER" --help
+    assert_eq "65" "$CAPTURE_RC" \
+        "default review root rejects a precreated symlink"
+    assert_eq 'default root sentinel' "$(cat "$outside/sentinel")" \
+        "default review root rejection preserves outside data"
+    rm -f -- "$default_root"
+
+    mkdir -m 777 "$default_root"
+    run_captured env -u SUPERARTES_REVIEW_TMPDIR TMPDIR="$default_parent" \
+        "$RUNNER" --help
+    assert_eq "0" "$CAPTURE_RC" \
+        "owned default review root is accepted"
+    mode="$(stat -c '%a' "$default_root" 2>/dev/null || \
+        stat -f '%Lp' "$default_root")"
+    assert_eq "700" "$mode" \
+        "default review root permissions are restricted"
+    if [ -d "$default_root" ] && [ ! -L "$default_root" ] && \
+        [ -O "$default_root" ]; then
+        pass "default review root is user-specific, owned, and ordinary"
+    else
+        fail "default review root is user-specific, owned, and ordinary"
+    fi
+    rmdir "$default_root"
+    rmdir "$legacy_root" 2>/dev/null || true
 }
 
 test_interrupted_metadata_before_review_key_is_ignored() {
@@ -1691,6 +1777,7 @@ if [ -x "$RUNNER" ]; then
     test_distinct_keys_run_concurrently
     test_registry_serializes_simultaneous_same_key
     test_registry_lock_recovery_and_malformed_refusal
+    test_default_review_root_is_private
     test_interrupted_metadata_before_review_key_is_ignored
     test_interrupted_prelaunch_run_is_reconciled
     test_launch_intent_guards_delayed_supervisor_publication

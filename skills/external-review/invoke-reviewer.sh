@@ -3,9 +3,28 @@ set -euo pipefail
 umask 077
 
 SCRIPT_PATH="$(cd "$(dirname "$0")" && pwd -P)/$(basename "$0")"
-RAW_REVIEW_ROOT="${SUPERARTES_REVIEW_TMPDIR:-${TMPDIR:-/tmp}/superartes-external-review}"
-mkdir -p "$RAW_REVIEW_ROOT"
-REVIEW_ROOT="$(cd "$RAW_REVIEW_ROOT" && pwd -P)"
+if [ -n "${SUPERARTES_REVIEW_TMPDIR:-}" ]; then
+    RAW_REVIEW_ROOT="$SUPERARTES_REVIEW_TMPDIR"
+    mkdir -p "$RAW_REVIEW_ROOT" || exit 65
+else
+    RAW_REVIEW_ROOT="${TMPDIR:-/tmp}/superartes-external-review-$(id -u)"
+    if [ -L "$RAW_REVIEW_ROOT" ]; then
+        printf 'Default review root must not be a symlink: %s\n' \
+            "$RAW_REVIEW_ROOT" >&2
+        exit 65
+    fi
+    if [ ! -e "$RAW_REVIEW_ROOT" ]; then
+        mkdir -m 700 "$RAW_REVIEW_ROOT" || exit 65
+    fi
+    if [ ! -d "$RAW_REVIEW_ROOT" ] || [ -L "$RAW_REVIEW_ROOT" ] || \
+        [ ! -O "$RAW_REVIEW_ROOT" ]; then
+        printf 'Default review root must be an owned ordinary directory: %s\n' \
+            "$RAW_REVIEW_ROOT" >&2
+        exit 65
+    fi
+    chmod 700 "$RAW_REVIEW_ROOT" || exit 65
+fi
+REVIEW_ROOT="$(cd "$RAW_REVIEW_ROOT" && pwd -P)" || exit 65
 REVIEWER_PID=""
 VALIDATED_RUN=""
 REGISTRY_OWNED=0
@@ -171,13 +190,21 @@ process_group_id() {
         tr -d '[:space:]'
 }
 
+registry_lock_is_ordinary() {
+    local lock_dir="$REVIEW_ROOT/.registry-lock"
+    [ -d "$lock_dir" ] && [ ! -L "$lock_dir" ]
+}
+
 release_registry() {
     local lock_dir="$REVIEW_ROOT/.registry-lock"
     [ "$REGISTRY_OWNED" -eq 1 ] || return 0
-    if [ "$(cat "$lock_dir/owner-pid" 2>/dev/null || true)" = \
+    if registry_lock_is_ordinary && \
+        [ -f "$lock_dir/owner-pid" ] && [ ! -L "$lock_dir/owner-pid" ] && \
+        [ -f "$lock_dir/owner-start" ] && [ ! -L "$lock_dir/owner-start" ] && \
+        [ "$(cat "$lock_dir/owner-pid" 2>/dev/null || true)" = \
         "$REGISTRY_OWNER_PID" ] && \
         [ "$(cat "$lock_dir/owner-start" 2>/dev/null || true)" = \
-        "$REGISTRY_OWNER_START" ]; then
+        "$REGISTRY_OWNER_START" ] && registry_lock_is_ordinary; then
         rm -f -- "$lock_dir/owner-pid" "$lock_dir/owner-start"
         rmdir -- "$lock_dir" 2>/dev/null || true
     fi
@@ -186,6 +213,7 @@ release_registry() {
 
 registry_owner_metadata_valid() {
     local lock_dir="$REVIEW_ROOT/.registry-lock"
+    registry_lock_is_ordinary || return 1
     [ -f "$lock_dir/owner-pid" ] && [ ! -L "$lock_dir/owner-pid" ] || \
         return 1
     [ -f "$lock_dir/owner-start" ] && [ ! -L "$lock_dir/owner-start" ] || \
@@ -212,10 +240,16 @@ reclaim_dead_registry() {
     local lock_dir="$REVIEW_ROOT/.registry-lock"
     local observed_pid="$REGISTRY_OBSERVED_PID"
     local observed_start="$REGISTRY_OBSERVED_START"
+    registry_lock_is_ordinary || return 1
+    [ -f "$lock_dir/owner-pid" ] && [ ! -L "$lock_dir/owner-pid" ] || \
+        return 1
+    [ -f "$lock_dir/owner-start" ] && [ ! -L "$lock_dir/owner-start" ] || \
+        return 1
     [ "$(cat "$lock_dir/owner-pid" 2>/dev/null || true)" = \
         "$observed_pid" ] || return 1
     [ "$(cat "$lock_dir/owner-start" 2>/dev/null || true)" = \
         "$observed_start" ] || return 1
+    registry_lock_is_ordinary || return 1
     rm -f -- "$lock_dir/owner-pid" "$lock_dir/owner-start"
     rmdir -- "$lock_dir" 2>/dev/null
 }
@@ -249,10 +283,13 @@ acquire_registry() {
         fi
         sleep 0.01
     done
+    registry_lock_is_ordinary || return 75
     REGISTRY_OWNED=1
     trap release_registry EXIT
     write_atomic "$lock_dir/owner-pid" "$REGISTRY_OWNER_PID"
+    registry_lock_is_ordinary || return 75
     write_atomic "$lock_dir/owner-start" "$REGISTRY_OWNER_START"
+    registry_lock_is_ordinary || return 75
 }
 
 cancel_lock_metadata_valid() {
@@ -1011,8 +1048,6 @@ cancel_run() {
     local expected_start
     local pgid
     local actual_pgid
-    local signal_group=0
-    local kill_group=0
     local attempt=0
     local pending_delay
     local accept_delay
@@ -1054,39 +1089,27 @@ cancel_run() {
         return 4
     fi
     actual_pgid="$(process_group_id "$pid")"
-    if [ "$pgid" = "$pid" ] && [ "$actual_pgid" = "$pid" ]; then
-        signal_group=1
-    fi
-    if [ "$signal_group" -eq 1 ]; then
-        # Keep the final identity check branch-local so successful validation
-        # is immediately followed by the signal for this exact target.
-        if ! process_identity_matches "$pid" "$expected_start"; then
-            write_atomic "$run_dir/cancel-requested" \
-                "rejected:identity-mismatch:$(date +%s)"
-            print_status "$run_dir" indeterminate
-            return 4
-        fi
-        if ! kill -TERM -- "-$pid" 2>/dev/null; then
-            write_atomic "$run_dir/cancel-requested" \
-                "rejected:signal-failed:$(date +%s)"
-            print_status "$run_dir" indeterminate
-            return 4
-        fi
-    else
-        if ! process_identity_matches "$pid" "$expected_start"; then
-            write_atomic "$run_dir/cancel-requested" \
-                "rejected:identity-mismatch:$(date +%s)"
-            print_status "$run_dir" indeterminate
-            return 4
-        fi
-        if ! kill -TERM "$pid" 2>/dev/null; then
-            write_atomic "$run_dir/cancel-requested" \
-                "rejected:signal-failed:$(date +%s)"
-            print_status "$run_dir" indeterminate
-            return 4
-        fi
-        printf 'Recorded/current reviewer PGID %s/%s does not match validated PID %s; signalling PID only (tree-wide cancellation unavailable)\n' \
+    if [ "$pgid" != "$pid" ] || [ "$actual_pgid" != "$pid" ]; then
+        write_atomic "$run_dir/cancel-requested" \
+            "rejected:pgid-mismatch:$(date +%s)"
+        printf 'Recorded/current reviewer PGID %s/%s does not match validated PID %s; refusing to signal an incomplete tree\n' \
             "$pgid" "$actual_pgid" "$pid" >> "$run_dir/supervisor-log"
+        print_status "$run_dir" indeterminate
+        return 4
+    fi
+    # Keep the final identity check immediately adjacent to the signal for
+    # this exact, fully validated process-group target.
+    if ! process_identity_matches "$pid" "$expected_start"; then
+        write_atomic "$run_dir/cancel-requested" \
+            "rejected:identity-mismatch:$(date +%s)"
+        print_status "$run_dir" indeterminate
+        return 4
+    fi
+    if ! kill -TERM -- "-$pid" 2>/dev/null; then
+        write_atomic "$run_dir/cancel-requested" \
+            "rejected:signal-failed:$(date +%s)"
+        print_status "$run_dir" indeterminate
+        return 4
     fi
 
     # Deterministic test hook for the reviewer-exit race between TERM and
@@ -1110,21 +1133,13 @@ cancel_run() {
         attempt=$((attempt + 1))
     done
     actual_pgid="$(process_group_id "$pid")"
-    if [ "$signal_group" -eq 1 ] && [ "$actual_pgid" = "$pid" ]; then
-        kill_group=1
-    fi
-    if [ "$kill_group" -eq 1 ]; then
+    if [ "$actual_pgid" = "$pid" ]; then
         if process_identity_matches "$pid" "$expected_start"; then
             kill -KILL -- "-$pid" 2>/dev/null || true
         fi
-    else
-        if process_identity_matches "$pid" "$expected_start"; then
-            kill -KILL "$pid" 2>/dev/null || true
-            if [ "$signal_group" -eq 1 ]; then
-                printf 'Reviewer PGID changed after TERM; escalating only the revalidated PID %s\n' \
-                    "$pid" >> "$run_dir/supervisor-log"
-            fi
-        fi
+    elif process_identity_matches "$pid" "$expected_start"; then
+        printf 'Reviewer PGID changed after TERM; refusing PID-only escalation for incomplete tree %s\n' \
+            "$pid" >> "$run_dir/supervisor-log"
     fi
     printf 'STATE=cancellation-requested\nRUN_DIR=%s\n' "$run_dir"
 }
@@ -1143,6 +1158,57 @@ prepare_cancel_lock_for_cleanup() {
     return 66
 }
 
+is_known_cleanup_artifact() {
+    case "$1" in
+        marker|run-path|review-key|profile|provider|run-id|\
+        provider-session|work-dir|scope-kind|scope-value|state|started-at|\
+        completed-at|supervisor-pid|supervisor-start|reviewer-pid|\
+        reviewer-start|reviewer-pgid|exit-code|prompt|result|\
+        reviewer-output|reviewer-log|supervisor-output|supervisor-log|\
+        previous-run|cancel-requested)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+preflight_cancel_lock_for_cleanup() {
+    local lock_dir="$1"
+    local path
+    local name
+    [ -d "$lock_dir" ] && [ ! -L "$lock_dir" ] || return 66
+    for path in "$lock_dir"/* "$lock_dir"/.[!.]* "$lock_dir"/..?*; do
+        [ -e "$path" ] || [ -L "$path" ] || continue
+        name="${path##*/}"
+        case "$name" in
+            owner-pid|owner-start)
+                [ -f "$path" ] && [ ! -L "$path" ] || return 66
+                ;;
+            *) return 66 ;;
+        esac
+    done
+    [ -f "$lock_dir/owner-pid" ] && [ ! -L "$lock_dir/owner-pid" ] || return 66
+    [ -f "$lock_dir/owner-start" ] && [ ! -L "$lock_dir/owner-start" ] || return 66
+    cancel_lock_owner_is_dead "$lock_dir" || return 66
+}
+
+preflight_cleanup_run() {
+    local run_dir="$1"
+    local path
+    local name
+    for path in "$run_dir"/* "$run_dir"/.[!.]* "$run_dir"/..?*; do
+        [ -e "$path" ] || [ -L "$path" ] || continue
+        name="${path##*/}"
+        if [ "$name" = '.cancel-lock' ]; then
+            preflight_cancel_lock_for_cleanup "$path" || return $?
+        elif is_known_cleanup_artifact "$name"; then
+            [ -f "$path" ] && [ ! -L "$path" ] || return 66
+        else
+            return 66
+        fi
+    done
+}
+
 cleanup_run() {
     [ "$#" -eq 1 ] || return 64
     validate_run "$1" || return $?
@@ -1154,6 +1220,7 @@ cleanup_run() {
     is_terminal_state "$state" || return 66
     reviewer_identity_matches "$run_dir" && return 66
     supervisor_identity_matches "$run_dir" && return 66
+    preflight_cleanup_run "$run_dir" || return $?
     prepare_cancel_lock_for_cleanup "$run_dir" || return $?
     for artifact in marker run-path review-key profile provider run-id \
         provider-session work-dir scope-kind scope-value state started-at \
