@@ -6,6 +6,15 @@ param(
 
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
+
+if ($PSVersionTable.PSEdition -cne 'Desktop' -or
+    $PSVersionTable.PSVersion.Major -ne 5 -or
+    $PSVersionTable.PSVersion.Minor -ne 1) {
+    [Console]::Error.WriteLine(
+        'Windows PowerShell 5.1 is required; PowerShell 7 is not supported.')
+    exit 1
+}
+
 . (Join-Path $PSScriptRoot 'Test-Lib.ps1')
 
 # This check intentionally precedes fixture creation. It is the native Windows

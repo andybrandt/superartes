@@ -12,29 +12,28 @@ The pre-implementation pressure evidence is in
 only by `status` and `wait`. It is never persisted over the last reliable
 state.
 
-## Mandatory native Windows PowerShell 7+ checkpoint
+## Mandatory native Windows PowerShell 5.1 checkpoint
 
-Run these commands from PowerShell 7 or later on native Windows. Do not use Git
-Bash, Windows PowerShell 5.1, or WSL. The first command is the native RED
-mechanism: it must report only that the runner is missing and return nonzero
-before the suite creates any fixtures. The second command runs the real
-deterministic suite with fake CLIs.
-Open PowerShell 7 in the repository root and run the block exactly as
-written.
+Run these commands from Windows PowerShell 5.1 on native Windows. Do not use
+Git Bash, PowerShell 7, or WSL. The first command is the native RED mechanism:
+it must report only that the runner is missing and return nonzero before the
+suite creates any fixtures. The second command runs the real deterministic
+suite with fake CLIs. Open Windows PowerShell 5.1 in the repository root and
+run the block exactly as written.
 
 ```powershell
-& pwsh.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\external-review\Run-Tests.ps1 -RunnerPath C:\definitely-missing\invoke-reviewer.ps1
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\external-review\Run-Tests.ps1 -RunnerPath C:\definitely-missing\invoke-reviewer.ps1
 if ($LASTEXITCODE -eq 0) { throw 'Missing-runner RED unexpectedly passed' }
-& pwsh.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\external-review\Run-Tests.ps1 -RunnerPath .\skills\external-review\invoke-reviewer.ps1
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\external-review\Run-Tests.ps1 -RunnerPath .\skills\external-review\invoke-reviewer.ps1
 if ($LASTEXITCODE -ne 0) { throw "Deterministic suite failed with $LASTEXITCODE" }
 ```
 
-The Linux build of PowerShell 7 is useful for parser and portable checks, but it
-does not replace the mandatory native Windows result because process discovery,
-device paths, and hidden launches are platform-specific:
+PowerShell 7 is deliberately unsupported. On development hosts where `pwsh` is
+available, the focused negative-host test verifies that both the adapter and
+the native suite reject it before dispatch or fixture creation:
 
-```powershell
-& pwsh.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\external-review\Run-Tests.ps1 -RunnerPath .\skills\external-review\invoke-reviewer.ps1
+```bash
+bash tests/external-review/test-powershell-version-gate.sh
 ```
 
 Native Windows verification is mandatory and has not yet been run. Record the
@@ -68,7 +67,7 @@ valid credentials, network access, any provider approval required by the
 account, and spend model tokens. Run them only after explicitly accepting
 those costs. Keep the checkout and fixture paths with spaces as shown.
 
-Create the disposable repository and prompt from PowerShell 7 on Windows:
+Create the disposable repository and prompt from Windows PowerShell 5.1:
 
 ```powershell
 $Checkout = (Resolve-Path .).ProviderPath
@@ -106,7 +105,7 @@ $FeatureCommit = (& git -C $Repository rev-parse HEAD).Trim()
 [IO.File]::WriteAllText((Join-Path $Repository 'uncommitted.txt'), "uncommitted review scope`n", $Utf8NoBom)
 
 foreach ($Profile in @('claude-prompt', 'codex-prompt', 'codex-review')) {
-    & pwsh.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter check $Profile
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter check $Profile
     if ($LASTEXITCODE -ne 0) { throw "$Profile preflight failed with $LASTEXITCODE" }
 }
 ```
@@ -115,17 +114,17 @@ Exercise `claude-prompt`, including `start`, a zero-time `wait`, `status`, the
 native JSON artifact, provider session identity, and cleanup:
 
 ```powershell
-$Start = & pwsh.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter start claude-prompt 'live|claude|document' $Repository $Prompt
+$Start = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter start claude-prompt 'live|claude|document' $Repository $Prompt
 if ($LASTEXITCODE -ne 0) { throw "Claude start returned $LASTEXITCODE" }
 $ClaudeRun = (($Start | Where-Object { $_ -like 'RUN_DIR=*' }) -replace '^RUN_DIR=', '')
-& pwsh.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter wait $ClaudeRun 0
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter wait $ClaudeRun 0
 if ($LASTEXITCODE -notin @(0, 3)) { throw "Claude zero-time wait returned $LASTEXITCODE" }
 do {
-    & pwsh.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter wait $ClaudeRun 30
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter wait $ClaudeRun 30
     $WaitExit = $LASTEXITCODE
 } while ($WaitExit -eq 3)
 if ($WaitExit -ne 0) { throw "Claude wait returned $WaitExit" }
-& pwsh.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter status $ClaudeRun
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter status $ClaudeRun
 if ($LASTEXITCODE -ne 0) { throw "Claude terminal status returned $LASTEXITCODE" }
 $ClaudeState = (Get-Content -LiteralPath (Join-Path $ClaudeRun 'state') -Raw).Trim()
 $ClaudeExit = (Get-Content -LiteralPath (Join-Path $ClaudeRun 'exit-code') -Raw).Trim()
@@ -155,7 +154,7 @@ if ($ClaudeReviewText.Length -lt 20) { throw 'Claude JSON contains no substantiv
 $ClaudeResult
 if ($ClaudeReviewText -notmatch 'uncommitted\.txt') { throw 'Claude result did not report git status evidence for uncommitted.txt' }
 Get-Content -LiteralPath (Join-Path $ClaudeRun 'reviewer-log') -Raw
-& pwsh.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter cleanup $ClaudeRun
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter cleanup $ClaudeRun
 if ($LASTEXITCODE -ne 0) { throw "Claude cleanup returned $LASTEXITCODE" }
 if (Test-Path -LiteralPath $ClaudeRun) { throw 'Claude cleanup left its run directory' }
 ```
@@ -163,15 +162,15 @@ if (Test-Path -LiteralPath $ClaudeRun) { throw 'Claude cleanup left its run dire
 Exercise `codex-prompt` and inspect its native final-message artifact:
 
 ```powershell
-$Start = & pwsh.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter start codex-prompt 'live|codex|document' $Repository $Prompt
+$Start = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter start codex-prompt 'live|codex|document' $Repository $Prompt
 if ($LASTEXITCODE -ne 0) { throw "Codex prompt start returned $LASTEXITCODE" }
 $CodexPromptRun = (($Start | Where-Object { $_ -like 'RUN_DIR=*' }) -replace '^RUN_DIR=', '')
 do {
-    & pwsh.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter wait $CodexPromptRun 30
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter wait $CodexPromptRun 30
     $WaitExit = $LASTEXITCODE
 } while ($WaitExit -eq 3)
 if ($WaitExit -ne 0) { throw "Codex prompt wait returned $WaitExit" }
-& pwsh.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter status $CodexPromptRun
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter status $CodexPromptRun
 if ($LASTEXITCODE -ne 0) { throw "Codex prompt terminal status returned $LASTEXITCODE" }
 $CodexPromptState = (Get-Content -LiteralPath (Join-Path $CodexPromptRun 'state') -Raw).Trim()
 $CodexPromptExit = (Get-Content -LiteralPath (Join-Path $CodexPromptRun 'exit-code') -Raw).Trim()
@@ -188,7 +187,7 @@ $CodexPromptResult = (Get-Content -LiteralPath $CodexPromptResultPath -Raw).Trim
 if ($CodexPromptResult.Length -lt 20) { throw 'Codex prompt result is not substantive' }
 $CodexPromptResult
 Get-Content -LiteralPath (Join-Path $CodexPromptRun 'reviewer-log') -Raw
-& pwsh.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter cleanup $CodexPromptRun
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter cleanup $CodexPromptRun
 if ($LASTEXITCODE -ne 0) { throw "Codex prompt cleanup returned $LASTEXITCODE" }
 if (Test-Path -LiteralPath $CodexPromptRun) { throw 'Codex prompt cleanup left its run directory' }
 ```
@@ -205,15 +204,15 @@ $Scopes = @(
 foreach ($Scope in $Scopes) {
     $Key = "live|codex-review|$($Scope[0])|$([Guid]::NewGuid())"
     $StartArguments = @('start', 'codex-review', $Key, $Repository) + $Scope
-    $Start = & pwsh.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter @StartArguments
+    $Start = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter @StartArguments
     if ($LASTEXITCODE -ne 0) { throw "$($Scope[0]) start returned $LASTEXITCODE" }
     $Run = (($Start | Where-Object { $_ -like 'RUN_DIR=*' }) -replace '^RUN_DIR=', '')
     do {
-        & pwsh.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter wait $Run 30
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter wait $Run 30
         $WaitExit = $LASTEXITCODE
     } while ($WaitExit -eq 3)
     if ($WaitExit -ne 0) { throw "$($Scope[0]) wait returned $WaitExit" }
-    & pwsh.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter status $Run
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter status $Run
     if ($LASTEXITCODE -ne 0) { throw "$($Scope[0]) terminal status returned $LASTEXITCODE" }
     $ReviewState = (Get-Content -LiteralPath (Join-Path $Run 'state') -Raw).Trim()
     $ReviewExit = (Get-Content -LiteralPath (Join-Path $Run 'exit-code') -Raw).Trim()
@@ -230,7 +229,7 @@ foreach ($Scope in $Scopes) {
     if ($ReviewResult.Length -lt 20) { throw "$($Scope[0]) result is not substantive" }
     $ReviewResult
     Get-Content -LiteralPath (Join-Path $Run 'reviewer-log') -Raw
-    & pwsh.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter cleanup $Run
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter cleanup $Run
     if ($LASTEXITCODE -ne 0) { throw "$($Scope[0]) cleanup returned $LASTEXITCODE" }
     if (Test-Path -LiteralPath $Run) { throw "$($Scope[0]) cleanup left its run directory" }
 }
@@ -242,7 +241,7 @@ the final state must be `cancelled`:
 
 ```powershell
 [IO.File]::WriteAllText($Prompt, "Perform a thorough read-only review of every file under $Repository", $Utf8NoBom)
-$Start = & pwsh.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter start claude-prompt 'live|claude|cancel' $Repository $Prompt
+$Start = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter start claude-prompt 'live|claude|cancel' $Repository $Prompt
 if ($LASTEXITCODE -ne 0) { throw "Cancellation fixture start returned $LASTEXITCODE" }
 $CancelRun = (($Start | Where-Object { $_ -like 'RUN_DIR=*' }) -replace '^RUN_DIR=', '')
 $ReviewerPid = [int]((Get-Content -LiteralPath (Join-Path $CancelRun 'reviewer-pid') -Raw).Trim())
@@ -280,10 +279,10 @@ do {
 if ($Children.Count -eq 0) { throw 'Cancellation fixture published no child identity' }
 $RecordedIdentities += $Children
 $RecordedIdentities | Format-Table ProcessId, StartToken
-& pwsh.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter cancel $CancelRun
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter cancel $CancelRun
 if ($LASTEXITCODE -ne 0) { throw "Cancel returned $LASTEXITCODE" }
 do {
-    & pwsh.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter wait $CancelRun 10
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter wait $CancelRun 10
     $WaitExit = $LASTEXITCODE
 } while ($WaitExit -eq 3)
 if ($WaitExit -ne 0) { throw "Cancelled wait returned $WaitExit" }
@@ -299,7 +298,7 @@ foreach ($Identity in $RecordedIdentities) {
     }
 }
 Get-Content -LiteralPath (Join-Path $CancelRun 'reviewer-log') -Raw
-& pwsh.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter cleanup $CancelRun
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter cleanup $CancelRun
 if ($LASTEXITCODE -ne 0) { throw "Cancelled cleanup returned $LASTEXITCODE" }
 if (Test-Path -LiteralPath $CancelRun) { throw 'Cancelled cleanup left its run directory' }
 ```

@@ -63,7 +63,7 @@ Add two implementations of the same public protocol:
 - `skills/external-review/invoke-reviewer.sh` for Linux, macOS, and WSL.
 - `skills/external-review/invoke-reviewer.ps1` for native Windows.
 
-The Bash adapter must not require Python, Node.js, `jq`, or PowerShell. It uses `uuidgen` when available and a pure Bash plus `/dev/urandom` fallback. The Windows adapter targets PowerShell 7 or later. Windows PowerShell 5.1 is not supported.
+The Bash adapter must not require Python, Node.js, `jq`, or PowerShell. It uses `uuidgen` when available and a pure Bash plus `/dev/urandom` fallback. The Windows adapter targets the Windows PowerShell 5.1 installation included with Windows 10 and later. PowerShell 7 is not supported.
 
 Native Windows prefers the PowerShell adapter even when Git Bash is installed. POSIX systems and WSL use Bash.
 
@@ -268,7 +268,7 @@ Native Windows support must not depend on Git Bash.
 
 The PowerShell adapter:
 
-- Uses PowerShell 7-compatible syntax and runs natively on Windows.
+- Uses Windows PowerShell 5.1-compatible syntax and runs natively on Windows.
 - Is invoked with a documented `-NoProfile` and appropriate execution-policy form so repository scripts can run without loading user profiles.
 - Uses `[guid]::NewGuid()` and native temporary-path APIs.
 - Resolves whether `claude` or `codex` is a native executable or launcher shim and records the actual reviewer process tree rather than assuming the first process is the model CLI.
