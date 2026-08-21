@@ -80,7 +80,8 @@ function Test-SharedContract {
     $contractPath = Join-Path $PSScriptRoot 'contract.txt'
     $contract = @{}
     foreach ($line in [IO.File]::ReadAllLines($contractPath)) {
-        $parts = $line.Split(@('='), 2)
+        $parts = $line.Split(
+            [char[]]@('='), 2, [StringSplitOptions]::None)
         $contract[$parts[0]] = $parts[1]
     }
     Assert-Equal 'check,start,status,wait,cancel,cleanup' $contract.operations 'PowerShell reads operation contract'
