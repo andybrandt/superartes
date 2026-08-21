@@ -257,7 +257,22 @@ function Test-ClaudePromptLifecycle {
     $run = Start-Review 0 @('claude-prompt', 'document|windows path|spec', $workDirectory, $prompt)
     Wait-Review $run 10 0
     $env:FAKE_NATIVE_JSON_FILE = $null
-    Assert-Equal 'exited' ([IO.File]::ReadAllText((Join-Path $run 'state')).Trim()) 'Claude reaches exited'
+    $state = [IO.File]::ReadAllText((Join-Path $run 'state')).Trim()
+    if ($state -cne 'exited') {
+        $diagnosticParts = @()
+        foreach ($artifact in @('supervisor-log', 'supervisor-output', 'reviewer-log')) {
+            $path = Join-Path $run $artifact
+            $value = '<missing>'
+            if (Test-Path -LiteralPath $path -PathType Leaf) {
+                $value = [IO.File]::ReadAllText($path)
+            }
+            $diagnosticParts += "$artifact=[$value]"
+        }
+        $artifactNames = @(Get-ChildItem -LiteralPath $run -Force |
+            Select-Object -ExpandProperty Name) -join ','
+        throw "Claude lifecycle prerequisite failed: state=$state; $($diagnosticParts -join '; '); artifacts=[$artifactNames]"
+    }
+    Pass-Test 'Claude reaches exited'
     Assert-Equal '0' ([IO.File]::ReadAllText((Join-Path $run 'exit-code')).Trim()) 'Claude exit is retained'
     Assert-FileEqual $nativeJson (Join-Path $run 'result') 'Claude native JSON is retained byte-for-byte'
     Assert-Utf8NoBom (Join-Path $run 'review-key') 'metadata is UTF-8 without BOM'
