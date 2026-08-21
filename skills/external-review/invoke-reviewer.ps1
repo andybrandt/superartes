@@ -1451,7 +1451,7 @@ function Confirm-DescendantSnapshot {
     }
     $expectedRootToken = ConvertTo-CimCreationToken $RootStart
     if ((Get-ProcessStartToken $RootId) -cne $expectedRootToken) {
-        throw "Cannot validate reviewer root $RootId: identity changed"
+        throw "Cannot validate reviewer root ${RootId}: identity changed"
     }
 }
 

@@ -118,6 +118,13 @@ function Test-StaticSecurityInvariants {
         Pass-Test 'cmd command templates contain no raw dynamic reviewer value interpolation'
     }
     else { Fail-Test 'cmd command templates contain no raw dynamic reviewer value interpolation' }
+    $ambiguousInterpolationPattern = '\$' +
+        '(?!(?:global|local|private|script|using|env|function|variable|alias):)' +
+        '[A-Za-z_][A-Za-z0-9_]*:'
+    if (-not [regex]::IsMatch($source, $ambiguousInterpolationPattern)) {
+        Pass-Test 'interpolated variables before colons use explicit delimiters'
+    }
+    else { Fail-Test 'interpolated variables before colons use explicit delimiters' }
     if (-not $source.Contains(".ProviderPath.TrimEnd('\')")) {
         Pass-Test 'canonical directory resolution does not trim a Windows drive root separator'
     }
