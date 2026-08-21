@@ -112,7 +112,7 @@ function Test-StaticSecurityInvariants {
     else { Fail-Test 'batch-capable reviewer commands are never invoked through the PowerShell call operator' }
     $templateLines = @($source -split "`r?`n" | Where-Object { $_.Contains('$commandTemplate =') })
     $rawDynamicTemplate = @($templateLines | Where-Object {
-        $_ -match '\$(reviewerCommand|reviewerArguments|Command|Arguments|Value)'
+        $_ -match '\$(reviewerCommand|reviewerArguments|Command|Arguments|Value)(?![A-Za-z0-9_])'
     })
     if ($templateLines.Count -gt 0 -and $rawDynamicTemplate.Count -eq 0) {
         Pass-Test 'cmd command templates contain no raw dynamic reviewer value interpolation'

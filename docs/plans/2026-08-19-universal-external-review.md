@@ -1001,13 +1001,11 @@ Include a `-RunnerPath` test parameter so the final native session can first poi
 Start `invoke-reviewer.ps1` with:
 
 ```powershell
-[CmdletBinding()]
 param(
-    [Parameter(Position = 0)]
-    [string] $Operation = '--help',
-    [Parameter(ValueFromRemainingArguments = $true)]
-    [string[]] $Remaining
+    [string] $Operation = '--help'
 )
+
+$Remaining = @($args)
 
 $ErrorActionPreference = 'Stop'
 $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
@@ -1032,6 +1030,12 @@ function Write-AtomicText {
     }
 }
 ```
+
+Keep this as a simple script entry point. Windows PowerShell 5.1 invoked with
+`powershell.exe -File` cannot populate an array-valued script parameter, while
+`CmdletBinding` makes the automatic `$args` collection unavailable. The first
+positional value binds to `$Operation`; the simple script's `$args` collection
+retains every subsequent lifecycle argument.
 
 Implement `Show-Usage`, `Test-Profile`, `Resolve-ReviewerCommand`, and the same public dispatch as Bash. `Test-Profile` uses `Get-Command`, invokes `--version` and profile help, and checks the same required flags.
 

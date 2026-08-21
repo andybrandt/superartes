@@ -1,11 +1,8 @@
-[CmdletBinding()]
 param(
-    [Parameter(Position = 0)]
-    [string]$Operation = '--help',
-
-    [Parameter(ValueFromRemainingArguments = $true)]
-    [string[]]$Remaining = @()
+    [string]$Operation = '--help'
 )
+
+$Remaining = @($args)
 
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
