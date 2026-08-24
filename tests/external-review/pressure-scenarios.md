@@ -184,4 +184,133 @@ status or wait operation, stable review lock, process identity validation, or
 actual-runtime timestamp. It therefore cannot distinguish an active review
 from a failed one or make a scope-based decision about how much longer to wait.
 
-### GREEN rerun
+### GREEN rerun - pending Task 6
+
+Task 6 will rerun this external-code-review scenario after that skill adopts
+the managed reviewer lifecycle.
+
+## Scenario C - Codex elevated process hosting
+
+### RED live execution
+
+Started: `2026-08-24T17:22:15+02:00`
+
+The Codex controller followed the then-current reference and invoked
+`claude-prompt` with a standalone approved elevated `start`. The adapter
+returned:
+
+```text
+STATE=running
+RUN_DIR=/tmp/superartes-managed-claude.f2RlGo/review-state/run-da4ce549-0838-4be5-9b58-44598240e247
+```
+
+Nine seconds later, a separate managed `wait` returned exit 4 and
+`STATE=indeterminate`. The retained state was still `running`, both recorded
+reviewer and supervisor identities were absent, `result` and all logs were
+empty, and no exit or completion artifact existed. A separate
+`nohup setsid sleep 60` probe was also absent immediately after its elevated
+tool call returned. This isolated the Codex elevated-command host reaping all
+descendants when a one-shot call ends; stronger POSIX detachment cannot escape
+that host boundary.
+
+Failure analysis: the adapters correctly detected lost identities, but the
+reference told every controller to issue detached `start` and later `wait`
+calls without describing the Codex-specific persistent process host needed
+when `claude-prompt` runs outside the network-restricted sandbox.
+
+### GREEN pressure rerun
+
+Started: `2026-08-24T18:34:29+02:00`
+
+Completed: `2026-08-24T18:36:17+02:00`
+
+Prompt:
+
+```text
+You are the Codex controller. Read the current working-tree files skills/external-review/SKILL.md and skills/external-review/invoking-reviewers.md and follow them exactly. You must use claude-prompt for an independent review. Claude needs provider network access, so execution must be approved outside Codex's restricted sandbox. State the exact process-hosting and managed lifecycle you would use, including start/wait session handling, evidence and cleanup, failure behavior if that hosting facility is unavailable, and whether this changes the existing Claude-controller-to-Codex workflow. Do not edit files or launch a reviewer. Return only the proposed operational response.
+```
+
+Response, verbatim:
+
+````text
+I would run the independent review with `claude-prompt` through one approved persistent PTY session:
+
+- Open `bash --noprofile --norc` using Codex’s process runner with `tty=true` and `sandbox_permissions=require_escalated`.
+- The approval request would explicitly state that Claude receives read-only access to `/home/andy/comp/superartes-andy` and that the review consumes provider network access and model tokens.
+- Keep the returned shell session ID alive for the entire managed lifecycle. I would not run `start` as a standalone elevated command because the process runner could reap the adapter’s supervisor and reviewer when that command returns.
+- Use the absolute adapter path `/home/andy/comp/superartes-andy/skills/external-review/invoke-reviewer.sh`.
+
+Inside that same approved shell session, I would:
+
+1. Canonicalize the project and document paths, then construct the prescribed base64url-encoded stable document review key.
+2. Create a unique temporary prompt file containing the exact contextual review prompt.
+3. Run:
+   ```bash
+   "/home/andy/comp/superartes-andy/skills/external-review/invoke-reviewer.sh" check claude-prompt
+   ```
+   Preflight must succeed before any `start`, including outstanding-key recovery.
+4. Run:
+   ```bash
+   "/home/andy/comp/superartes-andy/skills/external-review/invoke-reviewer.sh" start claude-prompt "$REVIEW_KEY" "$WORK_DIR" "$PROMPT_FILE"
+   ```
+5. Retain the printed `RUN_DIR`, then remove only the caller-created prompt file after the adapter has retained it.
+6. Send bounded `wait` commands through the same PTY session, each shorter than the host tool timeout:
+   ```bash
+   "/home/andy/comp/superartes-andy/skills/external-review/invoke-reviewer.sh" wait "$RUN_DIR" "$TIMEOUT_SECONDS"
+   ```
+   Exit 3 means still running and exit 4 means indeterminate - neither is a generic failure. An empty result while live is not inspected or treated as failure. At fifteen minutes of recorded runtime during interactive work, I would ask whether to continue or cancel.
+7. Once terminal, inspect evidence in this order: validated state and reviewer/supervisor identity, exit code, native result, reviewer output and log, supervisor output and log, provider session/transcript, then already-returned output. Any substantive feedback is triaged even after a non-zero exit.
+8. Only after triage or diagnosed terminal failure, run:
+   ```bash
+   "/home/andy/comp/superartes-andy/skills/external-review/invoke-reviewer.sh" cleanup "$RUN_DIR"
+   ```
+   I would verify cleanup succeeded before exiting the persistent shell.
+
+If `start` output were lost, I would reissue ordinary `start` only with the exact same profile, stable key, canonical work directory, and original prompt bytes. I would recreate a temporary prompt file if necessary, never use `--after-terminal` for recovery, retain the existing `RUN_DIR` returned with exit 12, and resume managed `wait`.
+
+If Codex cannot provide an approved persistent shell, I would stop before `start` and report the review as blocked. I would likewise stop on failed `claude-prompt` preflight or uncertain recovery inputs. I would not substitute a same-controller model and call it independent. A linked retry would be considered only after terminal evidence proves both reviewer and supervisor absent and no usable review exists.
+
+This does not change the existing Claude-controller-to-Codex workflow. It is specifically the Codex-controller hosting procedure required when Codex selects `claude-prompt`; Claude Code controllers continue invoking Codex profiles through their existing managed adapter workflow.
+````
+
+GREEN analysis: the reference was changed only for a Codex/OpenAI controller
+selecting `claude-prompt`. The fresh context kept the entire managed lifecycle
+in one approved persistent PTY, refused standalone elevated `start`, stopped
+before launch if persistent hosting was unavailable, and explicitly left the
+Claude-controller-to-Codex workflow unchanged.
+
+### GREEN live execution
+
+Started: `2026-08-24T17:24:12+02:00`
+
+Completed: `2026-08-24T17:24:43+02:00`
+
+The Codex controller opened one approved persistent elevated Bash PTY and sent
+the unchanged adapter's `start` and `wait` commands through that same session.
+The real Claude Code 2.1.241 reviewer read the disposable document and the
+managed lifecycle recorded:
+
+```text
+STATE=exited
+EXIT_CODE=0
+```
+
+The retained native JSON contained a provider-session UUID, substantive review
+feedback, and the required `CLAUDE_PERSISTENT_SESSION_OK` marker. Reviewer and
+supervisor logs were empty. After inspecting the review, managed `cleanup`
+returned `STATE=cleaned`, and only then was the persistent shell closed.
+
+GREEN analysis: the adapter remains universal and unchanged. The persistent
+process host is a Codex-controller invocation rule for the networked
+`claude-prompt` direction only; it does not alter the established Claude Code
+controller path or either Codex reviewer profile.
+
+Post-change live verification ran from `2026-08-24T18:22:51+02:00` through
+`2026-08-24T18:23:04+02:00` in a fresh persistent elevated Bash PTY. Preflight
+returned 0; `start` reported one running directory; `wait` reported `exited`
+with exit code 0; the provider session was
+`42b37a90-53e3-44e7-a82f-a2eb796a60bb`; and the 13,088-byte native JSON
+identified this concrete ambiguity: the fixture said empty output while the
+reviewer is alive is not failure, but did not define "alive" or state the
+converse. It also contained `TASK5_LINUX_GREEN`. Both logs were empty, and
+managed cleanup succeeded before the PTY exited.

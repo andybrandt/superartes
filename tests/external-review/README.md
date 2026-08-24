@@ -12,6 +12,43 @@ The pre-implementation pressure evidence is in
 only by `status` and `wait`. It is never persisted over the last reliable
 state.
 
+## Codex-controller Linux live checkpoint
+
+Model-backed commands need provider network access and spend model tokens. A
+Codex controller must request approval to run them outside its restricted
+sandbox. Run `claude-prompt` through the persistent-shell procedure in
+`skills/external-review/invoking-reviewers.md`; a standalone elevated `start`
+call is unsafe on Codex hosts that reap all descendants when the call ends.
+This constraint does not apply to the established Claude Code controller path.
+
+The Task 5 Linux checkpoint was run from a working tree based on checkpoint
+commit `74c9054` with Claude Code 2.1.241:
+
+- The external-review trigger test passed outside the Codex sandbox and
+  invoked exactly `superartes:external-review`.
+- A one-shot elevated managed start returned `running`, after which the host
+  reaped both supervisor and reviewer and `wait` correctly returned
+  `indeterminate`. A detached `nohup setsid sleep` probe was also reaped,
+  isolating the host execution boundary rather than the adapter.
+- The same `claude-prompt` profile in one persistent elevated Bash session
+  reached `exited`, recorded exit code 0 and a provider-session UUID, retained
+  substantive native JSON, and cleaned up successfully after inspection.
+- A fresh post-documentation rerun repeated that lifecycle in 13 seconds. It
+  recorded provider session `42b37a90-53e3-44e7-a82f-a2eb796a60bb`; the
+  13,088-byte native JSON identified an ambiguity in how the fixture defined a
+  live reviewer and contained the required `TASK5_LINUX_GREEN` marker. Both
+  logs were empty, and cleanup succeeded.
+
+The trigger command is:
+
+```bash
+(cd tests/skill-triggering && ./run-test.sh external-review prompts/external-review.txt 3)
+```
+
+When the controller itself is sandboxed, the command must be run through its
+approved external-execution mechanism. A sandboxed timeout with API retry
+events is infrastructure failure, not a skill-trigger result.
+
 ## Mandatory native Windows PowerShell 5.1 checkpoint
 
 Run these commands from Windows PowerShell 5.1 on native Windows. Do not use

@@ -131,6 +131,14 @@ The review lock remains until explicit cleanup. This prevents an agent from star
 
 The supervisor must survive the initiating shell returning, SIGHUP, and the command runner terminating its original process group. On POSIX systems it runs with `nohup`, detached standard streams, and an independent process group. Linux may use `setsid`; the macOS-compatible fallback uses Bash job-control process grouping and must pass the same behavioral tests. On Windows a separately launched hidden PowerShell supervisor owns and waits for the reviewer process.
 
+Detachment cannot defeat a host execution service that forcibly reaps every
+descendant when an approved one-shot command ends. This occurs on the tested
+Codex controller path when `claude-prompt` must run outside Codex's
+network-restricted sandbox. That controller keeps one approved persistent
+shell session alive across `check`, `start`, bounded `wait`, evidence
+inspection, and cleanup. The existing Claude Code controller path continues to
+use the normal detached lifecycle and is unchanged.
+
 Supervisor stdin is detached from the controller, but reviewer stdin comes from the retained prompt artifact. Tests explicitly distinguish these two streams.
 
 Process liveness checks examine terminal metadata first and then validate both the recorded process identifier and its start identity. A recycled process identifier cannot make a completed review appear alive.

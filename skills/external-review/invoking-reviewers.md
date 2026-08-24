@@ -13,6 +13,29 @@ provided by the skill catalog. Quote every resolved path.
 
 Run the selected adapter's `check PROFILE` before model-backed work.
 
+## Codex controller process hosting
+
+This section applies only when a Codex/OpenAI controller selects
+`claude-prompt`. It does not change a Claude Code controller's invocation of
+either Codex profile.
+
+Claude needs provider network access. When that requires approved execution
+outside Codex's normal sandbox, open one approved persistent shell session and
+keep it alive for the managed lifecycle. Do not run `start` as a standalone
+one-shot elevated command: Codex's command runner may reap every descendant
+when that call ends, including a supervisor detached with `nohup` and `setsid`.
+
+On POSIX hosts, open a persistent PTY running `bash --noprofile --norc`. Send
+the quoted `check` and `start` commands to that session, retain `RUN_DIR`, and
+send bounded `wait` calls to the same session. Inspect terminal evidence and
+run `cleanup` before exiting the shell. Use the equivalent persistent shell
+facility on other supported hosts.
+
+The approval request must identify the project or disposable fixture exposed
+to Claude and state that the review uses network access and model tokens. If
+the Codex host cannot provide an approved persistent shell, stop before
+`start`; do not launch a review that the host is known to reap.
+
 ## Stable review keys
 
 Canonicalize every path to its absolute physical filesystem path. Encode every
