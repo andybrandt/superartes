@@ -1216,8 +1216,17 @@ Run the selected adapter's `check PROFILE` before model-backed work.
 
 ## Stable review keys
 
-- Document: `document|<canonical-project>|<canonical-documents>|<type>`
-- Code: `code|<canonical-repository>|<scope-kind>|<scope-value>`
+Canonicalize every path to its absolute physical filesystem path. Encode every
+dynamic field as UTF-8, then RFC 4648 base64url without padding. The base64url
+alphabet contains neither `|` nor `,`, so those characters are unambiguous key
+separators even when they occur in an original path or value.
+
+For multiple documents, remove duplicate canonical paths, sort the canonical
+path UTF-8 byte sequences lexicographically, encode each path separately, and
+join the encoded paths with `,`. Construct keys as:
+
+- Document: `document|<project-b64url>|<documents-b64url-list>|<type-b64url>`
+- Code: `code|<repository-b64url>|<scope-kind-b64url>|<scope-value-b64url>`
 
 ## Normal lifecycle
 
@@ -1230,38 +1239,61 @@ Run the selected adapter's `check PROFILE` before model-backed work.
 7. Call `cleanup` only after triage or diagnosed failure.
 
 Never inspect an empty live result as failure. Never start another matching
-review. `start` returns the existing run when its stable key is outstanding.
+review while one is outstanding. `start` returns the existing run when its
+stable key is outstanding.
+
+## Recover lost start output
+
+An ordinary `start` launches a new review when no matching key exists. Recover
+only when every semantic input is exact: profile, stable key, canonical work
+directory, and original prompt bytes or code-review scope arguments. If any
+input is uncertain, do not reissue `start`; report that recovery is blocked and
+ask for or diagnose the missing input. Never substitute a merely similar prompt.
+
+- Before caller prompt cleanup, reissue the original ordinary `start` using
+  the still-readable original prompt file.
+- After caller prompt cleanup, create a readable temporary file containing the
+  exact original prompt, then reissue the same profile, stable key, and work
+  directory using that file. The replacement pathname need not match because
+  lock identity is the stable key, not the prompt pathname.
+
+Do not use `--after-terminal` for recovery. Recovery still requires profile
+preflight to succeed because `start` performs preflight before outstanding-key
+lookup. On exit 12, retain the printed outstanding `RUN_DIR`, remove only the
+caller-created replacement prompt, and use the recovered path for `wait`.
 
 ## Profiles
 
 POSIX forms, where `$ADAPTER` is the quoted absolute script path:
 
 ```bash
-"$ADAPTER" start claude-prompt REVIEW_KEY WORK_DIR PROMPT_FILE
-"$ADAPTER" start codex-prompt REVIEW_KEY WORK_DIR PROMPT_FILE
-"$ADAPTER" start codex-review REVIEW_KEY WORK_DIR uncommitted
-"$ADAPTER" start codex-review REVIEW_KEY WORK_DIR base BASE_REF
-"$ADAPTER" start codex-review REVIEW_KEY WORK_DIR commit COMMIT_SHA
-"$ADAPTER" start --after-terminal PREVIOUS_RUN PROFILE REVIEW_KEY WORK_DIR PROFILE_ARGS
-"$ADAPTER" status RUN_DIR
-"$ADAPTER" wait RUN_DIR TIMEOUT_SECONDS
-"$ADAPTER" cancel RUN_DIR
-"$ADAPTER" cleanup RUN_DIR
+"$ADAPTER" start claude-prompt "$REVIEW_KEY" "$WORK_DIR" "$PROMPT_FILE"
+"$ADAPTER" start codex-prompt "$REVIEW_KEY" "$WORK_DIR" "$PROMPT_FILE"
+"$ADAPTER" start codex-review "$REVIEW_KEY" "$WORK_DIR" uncommitted
+"$ADAPTER" start codex-review "$REVIEW_KEY" "$WORK_DIR" base "$BASE_REF"
+"$ADAPTER" start codex-review "$REVIEW_KEY" "$WORK_DIR" commit "$COMMIT_SHA"
+"$ADAPTER" start --after-terminal "$PREVIOUS_RUN" claude-prompt "$REVIEW_KEY" "$WORK_DIR" "$PROMPT_FILE"
+"$ADAPTER" status "$RUN_DIR"
+"$ADAPTER" wait "$RUN_DIR" "$TIMEOUT_SECONDS"
+"$ADAPTER" cancel "$RUN_DIR"
+"$ADAPTER" cleanup "$RUN_DIR"
 ```
 
 Native Windows forms, where `$Adapter` is the literal absolute `.ps1` path:
 
 ```powershell
-& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter start claude-prompt $ReviewKey $WorkDir $PromptFile
-& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter start codex-prompt $ReviewKey $WorkDir $PromptFile
-& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter start codex-review $ReviewKey $WorkDir uncommitted
-& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter start codex-review $ReviewKey $WorkDir base $BaseRef
-& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter start codex-review $ReviewKey $WorkDir commit $CommitSha
-& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter wait $RunDir $TimeoutSeconds
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter start claude-prompt $ReviewKey $WorkDir $PromptFile
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter start codex-prompt $ReviewKey $WorkDir $PromptFile
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter start codex-review $ReviewKey $WorkDir uncommitted
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter start codex-review $ReviewKey $WorkDir base $BaseRef
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter start codex-review $ReviewKey $WorkDir commit $CommitSha
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter start --after-terminal $PreviousRun claude-prompt $ReviewKey $WorkDir $PromptFile
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter wait $RunDir $TimeoutSeconds
 ```
 
-Use `--after-terminal PREVIOUS_RUN` immediately after `start` on both adapters.
-Use `status`, `cancel`, and `cleanup` with the same final `$RunDir` argument.
+For a linked retry, place `--after-terminal "$PREVIOUS_RUN"` immediately after
+`start` on both adapters, as shown. Use `status`, `cancel`, and `cleanup` with
+the same final `$RunDir` argument.
 
 Exit codes are: 0 terminal/accepted operation, 2 missing CLI capability, 3
 still running, 4 indeterminate, 12 outstanding matching review, 64 usage, 65
@@ -1294,9 +1326,11 @@ remove those two known files and the empty lock directory.
 
 ## Fallback
 
-Use `--after-terminal` only after the original is terminal and all evidence
-shows no usable review, or after explicit user approval. Label same-model
-fallback as degraded.
+Use `--after-terminal` only after the original is terminal, validated process
+evidence shows its reviewer and supervisor are absent, and all evidence shows
+no usable review. Explicit user approval can authorize that linked retry only
+after the same terminal-and-absent precondition. Approval never permits a
+linked retry while the original is live. Label same-model fallback as degraded.
 ````
 
 - [ ] **Step 3: Replace external-review with the host-neutral policy**
@@ -1347,7 +1381,15 @@ the review.
 Read `invoking-reviewers.md` from this skill's absolute source directory and use
 the selected managed profile. Never resolve it relative to the user's project.
 One stable review key permits one outstanding review. A live process or empty
-live result is never failure.
+live result is never failure. Lost-output recovery may launch if no key matches,
+so preserve exact semantics. Before prompt cleanup, reissue ordinary `start`
+with the readable original prompt. After cleanup, recreate a readable temporary
+file containing the exact original prompt; its pathname may differ because the
+stable key is the lock identity. Use the same profile, key, and work directory,
+never `--after-terminal`; exit 12 recovers `RUN_DIR`, then use managed `wait`.
+Profile preflight runs before key lookup and must succeed. If exact inputs are
+unavailable or preflight fails, do not reissue `start` or substitute a similar
+review.
 
 On native Windows, Claude Code has no OS-level sandbox. Safe mode, `dontAsk`,
 the restricted tool allow-list, and the review-only prompt are the safeguards;
@@ -1360,10 +1402,13 @@ reasonable duration from scope and complexity, and extend it when justified.
 ## Completion and fallback
 
 Inspect terminal evidence in the order defined by the reference. Triage any
-substantive feedback even after a non-zero exit. A second attempt requires an
-unavailable CLI, demonstrated terminal failure with no review, or explicit user
-approval. For `indeterminate`, follow the reference and never retry immediately.
-Label same-model fallback as degraded.
+substantive feedback even after a non-zero exit. A fallback or second attempt
+requires an unavailable CLI, demonstrated terminal failure with no review, or
+explicit user approval. A linked retry additionally requires the original to be
+terminal with its reviewer and supervisor absent per validated evidence.
+Approval never permits a retry while the original is live. For `indeterminate`,
+follow the reference and never retry immediately. Label same-model fallback as
+degraded.
 
 ## Triage and summary
 

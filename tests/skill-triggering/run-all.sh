@@ -15,6 +15,7 @@ SKILLS=(
     "executing-plans"
     "requesting-code-review"
     "external-code-review"
+    "external-review"
 )
 
 echo "=== Running Skill Triggering Tests ==="

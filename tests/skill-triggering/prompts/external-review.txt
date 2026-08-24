@@ -1,0 +1,1 @@
+I have finished a design specification in docs/specs/payment-reconciliation.md. Before planning implementation, please arrange an independent review by a different model family and process the feedback.
