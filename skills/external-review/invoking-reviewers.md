@@ -38,6 +38,13 @@ the Codex host cannot provide an approved persistent shell, stop before
 
 ## Stable review keys
 
+A stable review key is the identity of one review request. `start` refuses to
+launch a second review whose key matches an outstanding run: it returns exit 12
+and that run's `RUN_DIR` instead, so a repeated invocation attaches to the review
+already in flight rather than duplicating it. Two invocations that mean the same
+review must therefore produce byte-identical keys, which is why every field is
+canonicalized and encoded rather than used raw.
+
 Canonicalize every path to its absolute physical filesystem path. Encode every
 dynamic field as UTF-8, then RFC 4648 base64url without padding. The base64url
 alphabet contains neither `|` nor `,`, so those characters are unambiguous key
@@ -50,19 +57,41 @@ join the encoded paths with `,`. Construct keys as:
 - Document: `document|<project-b64url>|<documents-b64url-list>|<type-b64url>`
 - Code: `code|<repository-b64url>|<scope-kind-b64url>|<scope-value-b64url>`
 
+The `uncommitted` scope has no value, so its scope-value field is empty and the
+key ends with a trailing `|`.
+
+Canonicalize a path with `cd "$DIR" && pwd -P` or `realpath -e`. Encode one
+field on POSIX hosts with:
+
+```bash
+printf '%s' "$FIELD" | base64 | tr -d '\n' | tr '+/' '-_' | tr -d '='
+```
+
+Sort document paths with `LC_ALL=C sort` before encoding them; another locale may
+not sort by UTF-8 byte sequence. On Windows, use
+`[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($Field))`, then replace
+`+` with `-` and `/` with `_`, and strip trailing `=`.
+
 ## Normal lifecycle
 
 1. Create the prompt in a unique temporary file when the profile needs one.
 2. Start the fixed profile and retain the printed `RUN_DIR`.
 3. Remove only the caller-created prompt copy after start has retained it.
-4. Call `wait` in chunks shorter than the host shell-tool cap.
+4. Call `wait` in chunks safely below the host shell-tool cap - 540 seconds under
+   a 600-second cap. On expiry `wait` calls `status`, which can add a few
+   seconds beyond the requested timeout.
 5. On terminal state, read `state`, `exit-code`, `result`, and logs.
 6. Triage substantive feedback before cleanup.
 7. Call `cleanup` only after triage or diagnosed failure.
 
-Never inspect an empty live result as failure. Never start another matching
+Never treat an empty live result as failure. Never start another matching
 review while one is outstanding. `start` returns the existing run when its
 stable key is outstanding.
+
+To cancel, run `cancel`, then `wait` until the state is terminal, inspect the
+evidence, and only then `cleanup`. `cleanup` returns 66 while the state is
+non-terminal or while a reviewer or supervisor identity still matches, so never
+call it directly on a live run.
 
 ## Recover lost start output
 
@@ -72,11 +101,11 @@ directory, and original prompt bytes or code-review scope arguments. If any
 input is uncertain, do not reissue `start`; report that recovery is blocked and
 ask for or diagnose the missing input. Never substitute a merely similar prompt.
 
-- Before caller prompt cleanup, reissue the original ordinary `start` using
-  the still-readable original prompt file.
-- After caller prompt cleanup, create a readable temporary file containing the
-  exact original prompt, then reissue the same profile, stable key, and work
-  directory using that file. The replacement pathname need not match because
+- If you have not yet deleted your prompt file, reissue the original ordinary
+  `start` with that same still-readable file.
+- If you have already deleted it, write the exact original prompt bytes to a new
+  temporary file, then reissue the same profile, stable key and work directory
+  with that file. The replacement pathname need not match the original, because
   lock identity is the stable key, not the prompt pathname.
 
 Do not use `--after-terminal` for recovery. Recovery still requires profile
@@ -128,6 +157,14 @@ State and validated reviewer/supervisor identity, exit code, native result,
 reviewer output and log, supervisor output and log, provider session/transcript,
 then already-returned output. Substantive review anywhere means triage it and
 do not retry.
+
+`status` prints state, profile, provider, elapsed time, the artifact paths,
+`REVIEWER_PID`, `EXIT_CODE` and `COMPLETED_AT`. It does not print supervisor
+identity, and once the state is terminal it returns without revalidating either
+identity. To establish the absence that a linked retry requires, read
+`reviewer-pid`, `reviewer-start`, `supervisor-pid` and `supervisor-start` in
+`RUN_DIR` and confirm no live process matches both a recorded PID and its start
+token. An artifact file that is absent is itself evidence, not a read failure.
 
 Claude JSON may be one result object or a transcript-style array. In the array
 form, locate the terminal item whose `type` is `result`; do not assume a
