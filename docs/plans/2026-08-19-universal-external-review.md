@@ -29,7 +29,7 @@
 | `tests/external-review/Run-Tests.ps1` | Deterministic native Windows adapter suite |
 | `tests/external-review/contract.txt` | Golden common states, artifact names, and public operations asserted by both suites |
 | `tests/external-review/pressure-scenarios.md` | RED and GREEN behavioral scenarios for both skills |
-| `tests/external-review/README.md` | Local deterministic, live CLI, and native Windows test instructions |
+| `tests/external-review/README.md` | Deterministic tests, recorded Linux live evidence, and the deferred native Windows gate |
 | `tests/skill-triggering/prompts/external-review.txt` | Natural prompt that should trigger document external review |
 | `.gitattributes` | Explicit LF handling for PowerShell source |
 | `README.md`, `CHANGELOG.md` | User-facing universal-review and release documentation |
@@ -46,7 +46,7 @@
 - Create: `tests/external-review/run-tests.sh`
 - Create: `tests/external-review/README.md`
 
-- [ ] **Step 1: Run the current document-review pressure scenario before editing either skill**
+- [x] **Step 1: Run the current document-review pressure scenario before editing either skill**
 
 Create a unique temporary file outside the repository, use the editing tool to write this exact prompt into it, and run it in a fresh Codex context with read-only access:
 
@@ -79,7 +79,7 @@ codex exec -C /home/andy/comp/superartes-andy -s read-only \
 
 Expected RED evidence: the current skill either starts or proposes fallback because it treats empty output as failure, or it lacks an attach/wait mechanism and relies only on prose. Retain the response verbatim for Step 3. Do not edit a skill until this behavior has been observed.
 
-- [ ] **Step 2: Run the current code-review pressure scenario**
+- [x] **Step 2: Run the current code-review pressure scenario**
 
 Repeat the same three-part procedure - create two new literal paths, write this prompt with the editing tool, then invoke Codex using those literal paths:
 
@@ -95,7 +95,7 @@ a fallback or second reviewer and how you decide how much longer to wait.
 
 Expected RED evidence: the current skill has no managed status, wait, stable review lock, or actual-runtime timestamp. Retain the exact response and rationalization for Step 3.
 
-- [ ] **Step 3: Preserve the RED evidence and create initial test documentation**
+- [x] **Step 3: Preserve the RED evidence and create initial test documentation**
 
 Create `tests/external-review/pressure-scenarios.md` with both prompts, complete unedited responses, process start/completion timestamps, and a short explanation of the observed failure. Add empty `GREEN rerun` sections that Tasks 5 and 6 must complete. Replace every later reference to "implementation-session notes" with this file.
 
@@ -103,7 +103,7 @@ Create `tests/external-review/README.md` with the POSIX deterministic command, t
 
 After recording the evidence, remove only the four caller-created temporary files.
 
-- [ ] **Step 4: Write the shared contract fixture**
+- [x] **Step 4: Write the shared contract fixture**
 
 Create `tests/external-review/contract.txt` with exactly:
 
@@ -116,7 +116,7 @@ artifacts=marker,run-path,review-key,profile,provider,run-id,provider-session,wo
 
 Document in `tests/external-review/README.md` that `indeterminate` is computed by `status` and `wait`; it is never persisted over the last reliable state.
 
-- [ ] **Step 5: Write the minimal Bash assertion and fixture library**
+- [x] **Step 5: Write the minimal Bash assertion and fixture library**
 
 Create `tests/external-review/test-lib.sh`:
 
@@ -206,7 +206,7 @@ finish_suite() {
 
 The test cleanup is intentionally recursive only inside the test-owned `mktemp` directory. Product cleanup must not use this pattern.
 
-- [ ] **Step 6: Write the first failing POSIX tests**
+- [x] **Step 6: Write the first failing POSIX tests**
 
 Create `tests/external-review/run-tests.sh`:
 
@@ -257,7 +257,7 @@ test_help_contract
 finish_suite
 ```
 
-- [ ] **Step 7: Run the targeted test and verify RED**
+- [x] **Step 7: Run the targeted test and verify RED**
 
 Run:
 
@@ -278,7 +278,7 @@ Do not commit yet. Task 2 turns this RED checkpoint green.
 - Modify: `tests/external-review/run-tests.sh`
 - Create: `skills/external-review/invoke-reviewer.sh`
 
-- [ ] **Step 1: Add fake Claude and Codex executables to the test library**
+- [x] **Step 1: Add fake Claude and Codex executables to the test library**
 
 Append these functions to `tests/external-review/test-lib.sh` before `finish_suite`:
 
@@ -357,7 +357,7 @@ FAKE_CODEX
 }
 ```
 
-- [ ] **Step 2: Add failing tests for preflight and a normal Claude run**
+- [x] **Step 2: Add failing tests for preflight and a normal Claude run**
 
 Append calls in `run-tests.sh` after `begin_suite` to initialize fakes:
 
@@ -417,7 +417,7 @@ Every adapter invocation must use `run_captured` and assert `CAPTURE_RC`, so one
 
 Run and confirm RED because `check`, `start`, and `wait` are not implemented.
 
-- [ ] **Step 3: Create the adapter header, dispatch, atomic writer, UUID generator, and help**
+- [x] **Step 3: Create the adapter header, dispatch, atomic writer, UUID generator, and help**
 
 Create `skills/external-review/invoke-reviewer.sh` with this structure:
 
@@ -504,7 +504,7 @@ case "${1:---help}" in
 esac
 ```
 
-- [ ] **Step 4: Implement profile preflight**
+- [x] **Step 4: Implement profile preflight**
 
 Add:
 
@@ -543,7 +543,7 @@ check_profile() {
 }
 ```
 
-- [ ] **Step 5: Implement minimal run creation and the profile-specific supervisor**
+- [x] **Step 5: Implement minimal run creation and the profile-specific supervisor**
 
 Add `start_run` so it validates the profile and working directory, copies prompt input into `prompt`, writes common metadata, launches a detached `_supervise`, and waits up to five seconds for `state` to become `running`, `exited`, or `launch-failed`. Its positional profile arguments are fixed:
 
@@ -673,7 +673,7 @@ supervisor_identity_matches() {
 }
 ```
 
-- [ ] **Step 6: Implement mechanical status and chunked wait**
+- [x] **Step 6: Implement mechanical status and chunked wait**
 
 Add:
 
@@ -739,7 +739,7 @@ wait_run() {
 
 Expand `status_run`'s output in both branches to include `PROFILE`, `PROVIDER`, `STARTED_AT`, `ELAPSED_SECONDS`, `RESULT`, `REVIEWER_OUTPUT`, `REVIEWER_LOG`, `SUPERVISOR_OUTPUT`, and `SUPERVISOR_LOG`. Include `REVIEWER_PID` only when recorded and `EXIT_CODE` plus `COMPLETED_AT` only when recorded. Calculate elapsed time from `started-at` to `completed-at` for terminal runs and from `started-at` to the current epoch for live runs. Tests must assert these field names and must prove that a delayed caller approval cannot be included because no `started-at` exists until the reviewer is established.
 
-- [ ] **Step 7: Run POSIX tests and verify GREEN**
+- [x] **Step 7: Run POSIX tests and verify GREEN**
 
 Run:
 
@@ -750,7 +750,7 @@ bash tests/external-review/run-tests.sh
 
 Expected: all Task 1 and Task 2 tests pass with no live fake reviewer processes left behind.
 
-- [ ] **Step 8: Run existing fast regressions**
+- [x] **Step 8: Run existing fast regressions**
 
 Run:
 
@@ -761,7 +761,7 @@ python3 tests/codex-plugin/validate-codex-plugin.py
 
 Expected: both suites pass.
 
-- [ ] **Step 9: Commit the first releasable checkpoint**
+- [x] **Step 9: Commit the first releasable checkpoint**
 
 Invoke `superartes:commit-message`, then stage only:
 
@@ -781,7 +781,7 @@ Suggested subject: `Add managed POSIX reviewer lifecycle core`
 - Modify: `tests/external-review/test-lib.sh`
 - Modify: `skills/external-review/invoke-reviewer.sh`
 
-- [ ] **Step 1: Add failing tests for duplicate prevention and terminal linking**
+- [x] **Step 1: Add failing tests for duplicate prevention and terminal linking**
 
 Add tests that:
 
@@ -813,7 +813,7 @@ test_duplicate_review_key() {
 
 Run and confirm RED.
 
-- [ ] **Step 2: Add an atomic registry lock and exact-key scan**
+- [x] **Step 2: Add an atomic registry lock and exact-key scan**
 
 Implement:
 
@@ -867,7 +867,7 @@ Hold this lock only while checking all existing matching keys and creating new m
 
 Add a regression: finish attempt one, start linked attempt two slowly, then issue an unlinked third start. It must return attempt two, never attempt one, and only one reviewer may be alive.
 
-- [ ] **Step 3: Add failing tests for cancellation and process identity**
+- [x] **Step 3: Add failing tests for cancellation and process identity**
 
 The fake CLI should optionally spawn a child sleep process and record its PID. Tests must assert:
 
@@ -887,13 +887,13 @@ The fake CLI should optionally spawn a child sleep process and record its PID. T
 
 Run and confirm RED.
 
-- [ ] **Step 4: Implement validated process-group cancellation**
+- [x] **Step 4: Implement validated process-group cancellation**
 
 Keep the guarded `process_start_identity`, `reviewer_identity_matches`, and `supervisor_identity_matches` definitions from Task 2; do not redefine them. The supervisor records `reviewer-pgid` with `LC_ALL=C ps -o pgid= -p "$REVIEWER_PID"` after launch.
 
 `cancel_run` validates the run, checks terminal state first, writes `cancel-requested`, and verifies reviewer PID plus start identity immediately before signalling. If recorded PGID equals the validated reviewer PID, send `TERM` to that negative PGID. If it differs, send `TERM` only to the validated PID and append a diagnostic rather than risking an unrelated process group. Wait three seconds, revalidate the same target, then escalate to `KILL` only if it remains alive. The supervisor records `cancelled`; cancellation never deletes evidence. If any identity check fails, signal nothing and return `4` with `STATE=indeterminate`.
 
-- [ ] **Step 5: Add failing adversarial cleanup tests**
+- [x] **Step 5: Add failing adversarial cleanup tests**
 
 Test all of these:
 
@@ -907,7 +907,7 @@ Test all of these:
 
 Run and confirm RED.
 
-- [ ] **Step 6: Implement hardened validation and cleanup**
+- [x] **Step 6: Implement hardened validation and cleanup**
 
 Keep the Task 2 validation contract and test it against all adversarial cases. In particular, validation must enforce:
 
@@ -927,13 +927,13 @@ validate_run() {
 
 `cleanup_run` refuses `running` and `indeterminate`, removes only the exact documented artifact list from `contract.txt`, and calls `rmdir` without `-r`. Unknown files therefore preserve the directory and produce exit `66`. It removes no global directory and does not delete another matching attempt.
 
-- [ ] **Step 7: Add supervisor-detachment regression tests**
+- [x] **Step 7: Add supervisor-detachment regression tests**
 
 Launch a nested Bash under an isolated process group with `setsid bash -c '…'`, capture that PGID, and assert it differs from the test runner's own PGID before signalling anything. Have the nested shell call `start`, capture its run path, then send `HUP` only to the validated nested-shell group. Assert the detached reviewer reaches `exited` and writes its exit status. Repeat the full lifecycle with `SUPERARTES_REVIEW_NO_SETSID=1` to exercise the macOS fallback on Linux. Never signal the test runner's process group and never make this test optional.
 
 Run and confirm these fail if the independent process-group setup is removed.
 
-- [ ] **Step 8: Run all POSIX and existing fast tests**
+- [x] **Step 8: Run all POSIX and existing fast tests**
 
 Run:
 
@@ -946,7 +946,7 @@ python3 tests/codex-plugin/validate-codex-plugin.py
 
 Expected: all pass and `ps` shows no fake reviewer left running.
 
-- [ ] **Step 9: Commit the hardened POSIX lifecycle**
+- [x] **Step 9: Commit the hardened POSIX lifecycle**
 
 Invoke `superartes:commit-message`, then:
 
@@ -968,7 +968,7 @@ Suggested subject: `Enforce one managed reviewer per review request`
 - Modify: `tests/external-review/README.md`
 - Modify: `.gitattributes`
 
-- [ ] **Step 1: Add explicit LF handling**
+- [x] **Step 1: Add explicit LF handling**
 
 Append to `.gitattributes`:
 
@@ -977,13 +977,13 @@ Append to `.gitattributes`:
 *.ps1 text eol=lf
 ```
 
-- [ ] **Step 2: Write the PowerShell test library and fake CLI shims**
+- [x] **Step 2: Write the PowerShell test library and fake CLI shims**
 
 `Test-Lib.ps1` must provide `Assert-Equal`, `Assert-FileContains`, isolated `$env:SUPERARTES_REVIEW_TMPDIR`, and fake `claude.cmd` / `codex.cmd` launchers backed by PowerShell scripts. Create the encoding everywhere with `New-Object System.Text.UTF8Encoding($false)` and use `[System.IO.File]::WriteAllText(path, text, $Utf8NoBom)`, avoiding version-dependent syntax differences.
 
 The fake Claude must support `--help`, `--version`, stdin capture, configurable delay/exit, argument capture, and JSON output. The fake Codex must support `exec --help`, `exec review --help`, prompt stdin, scope arguments, and `-o` result output.
 
-- [ ] **Step 3: Write the failing PowerShell parity suite**
+- [x] **Step 3: Write the failing PowerShell parity suite**
 
 `Run-Tests.ps1` reads `contract.txt` and asserts the same operations, profiles, states, and artifact names as Bash. Port every deterministic behavior from Tasks 2 and 3, including:
 
@@ -996,7 +996,7 @@ The fake Claude must support `--help`, `--version`, stdin capture, configurable 
 
 Include a `-RunnerPath` test parameter so the final native session can first point at a deliberately absent adapter and verify that the harness reports the expected missing-runner RED before it runs against the real adapter. Do not ask Andy for a separate missing-file-only round-trip.
 
-- [ ] **Step 4: Create the PowerShell adapter contract and profile validation**
+- [x] **Step 4: Create the PowerShell adapter contract and profile validation**
 
 Start `invoke-reviewer.ps1` with:
 
@@ -1039,7 +1039,7 @@ retains every subsequent lifecycle argument.
 
 Implement `Show-Usage`, `Test-Profile`, `Resolve-ReviewerCommand`, and the same public dispatch as Bash. `Test-Profile` uses `Get-Command`, invokes `--version` and profile help, and checks the same required flags.
 
-- [ ] **Step 5: Implement the hidden supervisor and fixed profile builders**
+- [x] **Step 5: Implement the hidden supervisor and fixed profile builders**
 
 `start` launches another PowerShell process running an internal `Supervise` operation:
 
@@ -1063,7 +1063,7 @@ The internal supervisor resolves the actual launcher returned by `Get-Command`, 
 
 For `claude-prompt`, set `$env:CLAUDE_CODE_USE_POWERSHELL_TOOL = '1'` only in the supervisor environment. Pass `--tools "Read,Glob,Grep,PowerShell"` and the exact allow-list `Read,Glob,Grep,PowerShell(git diff *),PowerShell(git status *),PowerShell(git rev-parse *),PowerShell(git cat-file *),PowerShell(git show *),PowerShell(git log *)`. Tests assert each permission reaches the fake as one intact argument. For Codex profiles, build the same fixed commands as Bash without accepting arbitrary arguments.
 
-- [ ] **Step 6: Implement registry locking, wait, cancellation, and cleanup**
+- [x] **Step 6: Implement registry locking, wait, cancellation, and cleanup**
 
 Use atomic directory creation for `.registry-lock`, owner PID plus `StartTime` stale-lock recovery, all-match chain-tail selection, `--after-terminal`, and the same return codes as Bash. Validate process identity using PID plus `StartTime` immediately before signalling.
 
@@ -1119,7 +1119,7 @@ function Stop-ValidatedProcessTree {
 
 If root validation fails, kill nothing and return `4`. Cleanup uses `Remove-Item -LiteralPath` only for the fixed artifact list and `Remove-Item -LiteralPath $RunDirectory` only after verifying the directory is empty. It must never use `-Recurse` on a caller-supplied run directory.
 
-- [ ] **Step 7: Verify locally and commit a Windows test candidate**
+- [x] **Step 7: Verify locally and commit a Windows test candidate**
 
 Run:
 
@@ -1140,7 +1140,12 @@ git commit
 
 Suggested subject: `Add native PowerShell reviewer lifecycle candidate`
 
-- [ ] **Step 8: Hand the committed candidate to Andy for one native Windows validation session**
+- [ ] **Step 8: Retain native Windows validation as a deferred gate**
+
+Deferred by Andy on 2026-08-24 after the Windows environment became
+unreliable following PowerShell 7 installation. The PowerShell 5.1 adapter
+remains implemented, but native deterministic and live lifecycle support is
+not yet verified.
 
 Ask Andy how he wants the committed branch made available on his Windows machine. Do not assume permission to push; push only if he explicitly authorizes it. Once the same commit is present in a checkout path containing spaces, Andy runs:
 
@@ -1152,9 +1157,20 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/external-review/Ru
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/external-review/Run-Tests.ps1
 ```
 
-Then, with an explicit warning that these commands require credentials, network access, user approval, and spend model tokens, run the documented native Windows live checks for `claude-prompt`, `codex-prompt`, and `codex-review`. Use a disposable Git repository and document fixture under a path containing spaces. Verify Claude's PowerShell Git permissions, all three native results, provider session identity, process-tree cancellation, and cleanup.
+If real-model Windows validation resumes from the Codex controller, run only
+one separately approved `claude-prompt` check against a disposable Git
+repository and document fixture under a path containing spaces. Warn that it
+requires credentials, network approval, and model tokens. Verify Claude's
+PowerShell Git permissions, provider session identity, process-tree
+cancellation, and cleanup.
+Validate normal Claude-controller behavior separately in an interactive Claude
+Code plugin session.
 
-This is the single mandatory native Windows checkpoint. Do not claim PowerShell support complete and do not begin Task 5 until Andy reports the deterministic result and the available live-profile results. Record exact commands, commit SHA, PowerShell version, CLI versions, and outcomes in `tests/external-review/README.md`.
+This gate is explicitly deferred. Andy allowed Task 5 and later work to proceed
+without it, provided nobody claims native Windows support is verified. When
+the gate resumes, record the exact commands, commit SHA, Windows and
+PowerShell versions, and deterministic outcomes in
+`tests/external-review/README.md`.
 
 - [ ] **Step 9: Fix native failures test-first and commit Windows-verified parity**
 
@@ -1178,7 +1194,7 @@ If fixes or validation documentation changed tracked files, invoke `superartes:c
 - Create: `tests/skill-triggering/prompts/external-review.txt`
 - Modify: `tests/skill-triggering/run-all.sh`
 
-- [ ] **Step 1: Add and run the external-review trigger test before changing its description**
+- [x] **Step 1: Add and run the external-review trigger test before changing its description**
 
 Create `tests/skill-triggering/prompts/external-review.txt`:
 
@@ -1194,7 +1210,12 @@ Register `external-review` in `tests/skill-triggering/run-all.sh`, then run:
 
 Expected: current description should trigger. Record the exact triggered-skill list. This is a regression baseline, not the lifecycle RED already captured in Task 1.
 
-- [ ] **Step 2: Write the shared operational reference**
+Historical note: this completed `claude -p` run is retained as execution
+evidence, but after the 2026-08-26 scope correction it is not treated as proof
+of normal interactive Claude Code controller behavior and is not repeated by
+later release gates.
+
+- [x] **Step 2: Write the shared operational reference**
 
 Create `skills/external-review/invoking-reviewers.md` with this operational content, substituting only the adapter's finalized exit-code table if implementation adds a diagnosed code:
 
@@ -1356,7 +1377,7 @@ after the same terminal-and-absent precondition. Approval never permits a
 linked retry while the original is live. Label same-model fallback as degraded.
 ````
 
-- [ ] **Step 3: Replace external-review with the host-neutral policy**
+- [x] **Step 3: Replace external-review with the host-neutral policy**
 
 Keep the frontmatter description limited to triggering conditions:
 
@@ -1441,7 +1462,7 @@ Input needed. Use `superartes:commit-message` for document changes that are
 committed.
 ```
 
-- [ ] **Step 4: Run GREEN pressure and trigger tests**
+- [x] **Step 4: Run GREEN pressure and the historical trigger check**
 
 Repeat Task 1's document scenario in a fresh context with the new skill. Expected: the agent selects `claude-prompt` under Codex, attaches to the existing run, uses `wait`, and refuses fallback while the reviewer is alive.
 
@@ -1461,7 +1482,7 @@ Run:
 
 Expected: PASS.
 
-- [ ] **Step 5: Run a real managed document review**
+- [x] **Step 5: Run a real managed document review**
 
 Use the new `claude-prompt` profile under the current Codex controller to review a small disposable document. Verify:
 
@@ -1478,7 +1499,7 @@ Use the new `claude-prompt` profile under the current Codex controller to review
 
 Use one actual Claude session. Do not retry on empty live output.
 
-- [ ] **Step 6: Run deterministic and plugin regressions**
+- [x] **Step 6: Run deterministic and plugin regressions**
 
 Run:
 
@@ -1489,7 +1510,7 @@ python3 tests/codex-plugin/validate-codex-plugin.py
 
 Expected: pass.
 
-- [ ] **Step 7: Commit the verified external-review skill before editing the sibling skill**
+- [x] **Step 7: Commit the verified external-review skill before editing the sibling skill**
 
 Invoke `superartes:commit-message`, then:
 
@@ -1508,26 +1529,34 @@ Do not begin Task 6 until this skill's trigger, pressure, deterministic, and rea
 ### Task 6: Deploy `external-code-review` against the managed lifecycle
 
 **Files:**
+- Modify: `CLAUDE_NOTES.md`
+- Modify: `docs/plans/2026-08-19-universal-external-review.md`
+- Modify: `docs/specs/2026-08-19-universal-external-review-design.md`
 - Modify: `skills/external-code-review/SKILL.md`
-- Modify: `tests/skill-triggering/prompts/external-code-review.txt` only if the current trigger prompt does not cover an explicit independent-model request
 - Modify: `tests/codex-plugin/validate-codex-plugin.py`
+- Modify: `tests/external-review/pressure-scenarios.md`
+- Modify: `tests/external-review/README.md`
 
-- [ ] **Step 1: Re-run the existing trigger test before editing**
+- [x] **Step 1: Lock the Codex-controller test boundary and retain RED evidence**
 
-Run:
+Do not use Claude `-p` skill-triggering tests as evidence for normal interactive
+Claude Code controller behavior. Headless mode may change controller behavior,
+and the existing shared harness bypasses permissions that this task does not
+need. Andy will validate the Claude-controller path manually in a normal Claude
+Code plugin session.
 
-```bash
-(cd tests/skill-triggering && ./run-test.sh external-code-review prompts/external-code-review.txt 3)
-```
+Use Scenario B's recorded pre-change Codex response as the required RED. It
+demonstrates that the existing skill treats an elapsed estimate and empty file
+as failure even while the original Claude reviewer remains alive, then starts a
+same-model fallback without managed lifecycle evidence.
 
-Expected: PASS. Record triggered skills.
-
-- [ ] **Step 2: Update the plugin validator contract and observe RED**
+- [x] **Step 2: Update the plugin validator contract and observe RED**
 
 Replace the legacy `validate_external_code_review_skill` assertions for the heading `## Process (Codex host)`, the literal `claude -p`, and the literal `Do **not** pass --model` text. The new assertions must require:
 
 - Both `codex-review` and `claude-prompt` controller mappings in `skills/external-code-review/SKILL.md`.
 - A reference to `invoking-reviewers.md` resolved from the sibling skill directory.
+- An explicit stop with "nothing to review" for both empty and invalid scopes.
 - No `-m` or `--model` argument in either reviewer adapter's fixed profile builders; user CLI configuration continues to own model selection.
 - No stale `planned, not yet wired` wording.
 
@@ -1539,7 +1568,7 @@ python3 tests/codex-plugin/validate-codex-plugin.py
 
 Expected RED: the current skill body does not yet meet the new provider-profile contract. Confirm that unrelated manifest and version checks still pass.
 
-- [ ] **Step 3: Replace duplicated host-specific shell recipes with concise policy**
+- [x] **Step 3: Replace duplicated host-specific shell recipes with concise policy**
 
 Preserve the current triggering-only frontmatter description. Replace the body with these responsibilities:
 
@@ -1563,7 +1592,7 @@ harness than the controller. This complements, and does not replace, per-task
 - Current work: use `uncommitted` and include staged, unstaged, and untracked.
 - Named commit: validate and use `commit|<sha>`.
 
-Guard the scope before starting. Stop with "nothing to review" for empty scope.
+Guard the scope before starting. Stop with "nothing to review" for empty or invalid scope.
 
 ## Reviewer selection
 
@@ -1601,43 +1630,57 @@ Claude response is not a substantive code review. Hand valid findings to
 `superartes:receiving-code-review`, then report Applied / Deferred / Pushed back.
 ```
 
-- [ ] **Step 4: Run GREEN pressure and trigger tests**
+- [x] **Step 4: Run the GREEN Codex-controller pressure test**
 
-Repeat Task 1's code-review pressure scenario. Expected: the Codex controller selects `claude-prompt`, uses recorded reviewer runtime, attaches/waits, and does not start a second session.
+Repeat Task 1's code-review pressure scenario. Because the scenario begins
+after one Claude reviewer is already running, it verifies managed attach/wait
+behavior, use of recorded reviewer runtime, and refusal to start a fallback or
+second session; it does not test initial profile selection. The static mapping
+validator covers Codex-to-`claude-prompt` selection, and the recorded real Task
+6 checkpoint confirms that mapping in a managed invocation.
 
 Append the complete GREEN response, process timestamps, and comparison with the RED behavior to `tests/external-review/pressure-scenarios.md`.
 
-Run the existing trigger test again and expect PASS.
+- [x] **Step 5: Run one real managed Claude code review under Codex**
 
-- [ ] **Step 5: Run real managed code reviews for both provider profiles**
+Create a disposable Git fixture with one committed base and one small
+uncommitted defect. Under the current Codex controller, run `claude-prompt`
+once with the exact Git-scope prompt. Keep one approved persistent shell alive
+across `check`, `start`, bounded `wait`, evidence inspection, and `cleanup`.
+The approval must state that only the disposable fixture is exposed to Claude
+and that provider network access and model tokens are used.
 
-Create a disposable Git fixture with one committed base and one small uncommitted defect. Run:
+Verify the review lists the Git commands and relevant files inspected, reports
+a finding tied to the fixture, records terminal state and provider session
+identity, and cleans up only after triage. Do not run a live `codex-review`
+profile from the Codex controller; that is not an independent review. Its
+mechanics remain covered by deterministic fake-CLI tests.
 
-1. `claude-prompt` with the exact Git-scope prompt under Codex.
-2. `codex-review --uncommitted` under a Claude-controller-compatible invocation context.
-
-For Claude, verify the review contains the required inspection evidence and a finding tied to the fixture. For Codex, verify its result and log correspond to the native uncommitted scope. Each profile starts once.
-
-- [ ] **Step 6: Run deterministic, trigger, and plugin regressions**
+- [x] **Step 6: Run deterministic and plugin regressions**
 
 Run:
 
 ```bash
 bash tests/external-review/run-tests.sh
-(cd tests/skill-triggering && ./run-test.sh external-code-review prompts/external-code-review.txt 3)
+bash tests/external-review/test-powershell-version-gate.sh
 python3 tests/codex-plugin/validate-codex-plugin.py
+git diff --check
 ```
 
 Expected: pass.
 
-- [ ] **Step 7: Commit the verified code-review skill**
+- [x] **Step 7: Commit the verified code-review skill**
 
 Invoke `superartes:commit-message`, then:
 
 ```bash
-git add skills/external-code-review tests/skill-triggering \
+git add skills/external-code-review \
   tests/codex-plugin/validate-codex-plugin.py \
-  tests/external-review/pressure-scenarios.md
+  tests/external-review/pressure-scenarios.md \
+  tests/external-review/README.md \
+  CLAUDE_NOTES.md \
+  docs/specs/2026-08-19-universal-external-review-design.md \
+  docs/plans/2026-08-19-universal-external-review.md
 git commit
 ```
 
@@ -1678,10 +1721,13 @@ git rm "claude under codex problem.md"
 Update `tests/external-review/README.md` with:
 
 - POSIX deterministic command.
-- Native Windows deterministic command.
-- Required manual Windows path-with-spaces run.
-- Credentialed live-test commands for all three profiles.
-- Explicit warning that live tests spend model tokens and require network approval.
+- Deferred native Windows deterministic command, including its fake-CLI
+  path-with-spaces coverage.
+- A note that normal Claude-controller behavior is validated manually in an
+  interactive Claude Code plugin session, not through `claude -p`.
+- Bounded historical Codex-to-Claude live evidence, with an explicit warning
+  that any separately authorized future live test spends model tokens and
+  requires network approval.
 - Artifact diagnosis and exact cleanup procedure.
 - Link to GitHub issue #4 for future automated Windows CI.
 
@@ -1695,11 +1741,11 @@ bash -n skills/external-review/invoke-reviewer.sh
 bash tests/external-review/run-tests.sh
 python3 tests/codex-plugin/validate-codex-plugin.py
 (cd tests/brainstorm-server && npm test)
-(cd tests/skill-triggering && ./run-test.sh external-review prompts/external-review.txt 3)
-(cd tests/skill-triggering && ./run-test.sh external-code-review prompts/external-code-review.txt 3)
 ```
 
-Expected: all pass. Do not claim the complete feature is verified until Andy's Task 4 Windows results are also recorded.
+Expected: all pass. The feature may be reported complete with the native
+Windows gate explicitly deferred, but do not claim native Windows support is
+verified until Andy's Task 4 results are recorded.
 
 - [ ] **Step 5: Inspect repository state**
 
@@ -1748,7 +1794,10 @@ Change external-review descriptions to say:
 - **external-code-review** - Independent managed review of code changes: native Codex review under Claude Code, equivalent Claude headless review under Codex
 ```
 
-Update the optional dependency table so both Claude Code CLI and Codex CLI list both external-review skills where appropriate. Add a short native Windows note: PowerShell is supported directly and Git Bash is not required for managed review invocation.
+Update the optional dependency table so both Claude Code CLI and Codex CLI list
+both external-review skills where appropriate. Add a short native Windows note:
+a direct PowerShell adapter is included and does not require Git Bash by
+design, while native PowerShell 5.1 validation remains deferred.
 
 - [ ] **Step 2: Add the 1.5.0 changelog entry**
 
@@ -1760,7 +1809,8 @@ Insert at the top after `# Changelog`:
 ### Added
 
 - Cross-provider managed external review with stable request locks, detached supervisors, resumable waiting, native result preservation, and safe cleanup.
-- Native Windows PowerShell 5.1 adapter with the same contract as the POSIX Bash adapter.
+- Native Windows PowerShell 5.1 adapter candidate with the same documented
+  contract as the POSIX Bash adapter; native verification remains deferred.
 
 ### Changed
 
@@ -1798,7 +1848,9 @@ bash tests/external-review/run-tests.sh
 
 Expected: version validator reports all manifests at `1.5.0`; all deterministic tests pass.
 
-Confirm Andy's native Windows test result is PASS. If it is not yet available, stop here and wait rather than committing the release.
+Record native Windows PowerShell 5.1 as deferred and unverified. This no longer
+blocks later release preparation, but the release must not claim native
+Windows verification until Andy records a PASS.
 
 - [ ] **Step 5: Invoke final verification and external code review**
 
@@ -1840,7 +1892,9 @@ Claude session `502300ec-1bdf-4ec9-b17e-e595c2b6a080` reviewed this plan read-on
 
 - Applied: validator migration, all-match attempt-chain locking, fast-exit grace handling, canonical temp paths, validated supervisor identity, safe process-group cancellation, stale registry ownership, full three-profile deterministic coverage, per-run fake logs, native Windows quoting and process-tree validation, one explicit Windows handoff, installed-skill path resolution, Claude JSON-array handling, `indeterminate` policy, and a separate commit path for final review fixes.
 - Skipped: a retroactive `1.4.5` changelog entry because it is unrelated pre-existing history; changing the exercised comma-separated Claude allow-list to repeated arguments because the installed CLI and the successful independent review already verified the combined form.
-- Input needed: none for implementation. Task 4 deliberately stops for Andy's chosen Windows transfer method and native validation result.
+- Input needed: none for implementation. Andy explicitly deferred the Task 4
+  native Windows gate and allowed later work to proceed without claiming that
+  platform verified.
 
 ---
 
@@ -1849,14 +1903,19 @@ Claude session `502300ec-1bdf-4ec9-b17e-e595c2b6a080` reviewed this plan read-on
 - RED pressure evidence was observed before either skill edit.
 - Each adapter behavior was added through a failing deterministic test.
 - Bash and native PowerShell implement the same public contract and golden artifact schema.
-- Andy reports the native Windows suite and real profile checks passing.
+- Native Windows PowerShell 5.1 status is explicitly reported as deferred and
+  unverified. When that gate resumes, Andy records the deterministic suite;
+  any real-model Windows check is limited to Codex controlling `claude-prompt`
+  against a disposable fixture.
 - Both skills select the opposite provider from controller identity, never executable availability.
 - Stable review locks mechanically prevent duplicate active reviews.
 - Detached supervisors survive the initiating shell and record terminal state.
 - Empty live output and approval-inclusive wall time cannot trigger fallback.
 - Same-model fallback is explicitly labeled degraded.
 - Legacy wrapper and temporary problem report are removed only after tests cover their lessons.
-- Existing plugin, trigger, and brainstorm-server tests pass.
+- Existing plugin, deterministic adapter, and brainstorm-server tests pass.
+- Codex-controller pressure tests and real Codex-to-Claude reviews pass;
+  interactive Claude-controller behavior remains a separate manual check.
 - Independent integrated code review is processed.
 - All version files and release documentation are synchronized at `1.5.0`.
 - The version commit is tagged locally as `v1.5.0`; nothing is pushed without explicit approval.

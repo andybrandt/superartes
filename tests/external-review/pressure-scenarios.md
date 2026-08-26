@@ -184,10 +184,46 @@ status or wait operation, stable review lock, process identity validation, or
 actual-runtime timestamp. It therefore cannot distinguish an active review
 from a failed one or make a scope-based decision about how much longer to wait.
 
-### GREEN rerun - pending Task 6
+### GREEN rerun
 
-Task 6 will rerun this external-code-review scenario after that skill adopts
-the managed reviewer lifecycle.
+Started: `2026-08-26T16:15:22+02:00`
+
+Completed: `2026-08-26T16:16:09+02:00`
+
+Prompt:
+
+```text
+You are the Codex controller. Read the current working-tree file
+skills/external-code-review/SKILL.md and follow it exactly.
+
+You started one Claude review of a large branch. The command runner returned,
+the review file is empty, and the Claude PID is alive. Your initial autonomous
+estimate has elapsed. State the exact next action, including whether you start
+a fallback or second reviewer and how you decide how much longer to wait.
+```
+
+The fresh Codex context read the changed external-code-review skill and
+followed its shared managed reviewer reference.
+
+Response, verbatim:
+
+```text
+Call managed `wait` again on the same `RUN_DIR`, through the existing persistent shell, using a bounded timeout shorter than the shell-tool cap.
+
+Do not start a fallback or second reviewer. The empty result is not a failure while the validated Claude PID remains alive, and a linked retry is forbidden until the original is terminal and both reviewer and supervisor are confirmed absent.
+
+Because this is a large branch, extend the autonomous deadline using a revised scope-based estimate - considering diff size, number and complexity of changed components, and the runtime already consumed - then wait toward that deadline in bounded chunks. Reassess status after each chunk. Only after terminal evidence shows no substantive review may a fallback be considered; `indeterminate` requires full artifact and process inspection and never permits an immediate retry.
+```
+
+GREEN analysis: because the prompt begins after one Claude reviewer is already
+running, this scenario does not test initial profile selection. It proves that
+the controller keeps the existing managed run and its persistent process host
+alive, uses recorded runtime and large-branch scope to revise its autonomous
+estimate, and calls bounded managed `wait` on the same `RUN_DIR`. Unlike RED,
+it does not inspect the empty live result, start a same-model fallback, or
+start a second reviewer. The static mapping validator covers the initial
+Codex-to-`claude-prompt` selection, and the recorded real Task 6 checkpoint
+confirms that mapping in a managed invocation.
 
 ## Scenario C - Codex elevated process hosting
 

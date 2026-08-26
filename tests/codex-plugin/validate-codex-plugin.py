@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -180,31 +181,72 @@ def validate_marketplace(plugin_manifest: dict[str, Any]) -> None:
 
 
 def validate_external_code_review_skill() -> None:
-    """Validate Codex-host external code review guidance."""
+    """Validate managed external code review guidance and profiles."""
     skill_path = REPO_ROOT / "skills" / "external-code-review" / "SKILL.md"
     require(skill_path.is_file(), "Missing external-code-review skill")
 
     content = skill_path.read_text(encoding="utf-8")
     require(
-        "## Process (Codex host)" in content,
-        "external-code-review must document the Codex-host process",
+        "| Claude Code / Anthropic | `codex-review` |" in content,
+        "Claude controllers must map to the codex-review profile",
     )
     require(
-        "`claude -p`" in content or "claude -p " in content,
-        "Codex-host external review must invoke Claude headlessly with claude -p",
+        "| Codex / OpenAI | `claude-prompt` |" in content,
+        "Codex controllers must map to the claude-prompt profile",
+    )
+
+    reviewer_reference = (
+        skill_path.parent.parent / "external-review" / "invoking-reviewers.md"
+    )
+    require(
+        reviewer_reference.is_file(),
+        "Missing sibling external-review invoking-reviewers.md",
+    )
+    require(
+        "invoking-reviewers.md" in content
+        and "sibling `external-review` skill's absolute source directory" in content,
+        "external-code-review must resolve invoking-reviewers.md from the sibling "
+        "external-review skill's absolute source directory",
     )
     require(
         "planned, not yet wired" not in content,
-        "Codex-host Claude review must no longer be marked as planned",
+        "external-code-review must not retain planned, not yet wired wording",
     )
     require(
-        "Do **not** pass `--model`" in content,
-        "Production Claude review guidance must not force a model",
+        'Stop with "nothing to review" for empty or invalid scope.' in content,
+        "external-code-review must stop for both empty and invalid scopes",
     )
-    require(
-        "claude -p --model" not in content,
-        "Production Claude review command must not include --model",
+
+    shell_adapter = (
+        REPO_ROOT / "skills" / "external-review" / "invoke-reviewer.sh"
+    ).read_text(encoding="utf-8")
+    shell_profile_builder = shell_adapter.split("run_profile() {", 1)[1].split(
+        "\nsupervise_run() {", 1
+    )[0]
+    shell_reviewer_commands = "\n".join(
+        block.split(" &", 1)[0]
+        for block in shell_profile_builder.split("reviewer_gate ")[1:]
     )
+
+    powershell_adapter = (
+        REPO_ROOT / "skills" / "external-review" / "invoke-reviewer.ps1"
+    ).read_text(encoding="utf-8")
+    powershell_profile_builder = powershell_adapter.split(
+        "function Invoke-RunReviewer {", 1
+    )[1].split("\nfunction Wait-ForCancellationTerminalState {", 1)[0]
+
+    for adapter_name, profile_builder in (
+        ("POSIX", shell_reviewer_commands),
+        ("PowerShell", powershell_profile_builder),
+    ):
+        require(
+            "--model" not in profile_builder,
+            f"{adapter_name} reviewer profiles must not pass --model",
+        )
+        require(
+            re.search(r"(?<![\w-])-m(?![\w-])", profile_builder) is None,
+            f"{adapter_name} reviewer profiles must not pass -m",
+        )
 
 
 def main() -> None:

@@ -40,6 +40,9 @@ A shell tool returning, a reviewer process terminating, an output artifact becom
 - Adding GitHub Actions in this change. Automated native-Windows coverage is tracked in [GitHub issue #4](https://github.com/andybrandt/superartes/issues/4).
 - Parsing or judging review feedback inside the process supervisor.
 - Providing a universal OS sandbox. Claude reviewer safety primarily relies on Claude Code's tool-permission layer; native Windows currently has no Claude Code OS sandbox.
+- Treating `claude -p` as evidence for normal interactive Claude Code controller
+  behavior. Claude controller validation is a manual plugin session, not a
+  headless automation target for this change.
 
 ## Controller and Reviewer Selection
 
@@ -52,7 +55,10 @@ Both skills use this ordered controller-identification procedure:
 
 After identifying the controller, select the opposite provider. A same-provider fallback is allowed only as a degraded review and is never described as independent.
 
-Host detection receives explicit pressure tests because it is a policy boundary, not an assumption hidden inside a command example.
+Host detection receives explicit Codex-controller pressure tests because it is
+a policy boundary, not an assumption hidden inside a command example. The
+Claude-controller mapping remains part of the static contract and is exercised
+manually in normal Claude Code rather than through `claude -p`.
 
 ## Managed Reviewer Architecture
 
@@ -289,7 +295,10 @@ Cleanup rejects symlinks or reparse-point redirection, paths outside the fixed h
 
 Claude reviewer safety on all platforms relies primarily on safe mode, restricted tools, `dontAsk`, and a review-only prompt. Native Windows additionally lacks Claude Code OS sandboxing, and the skills state this plainly.
 
-Andy will run the native Windows validation for this release. Automated Windows regression testing remains future work in issue #4.
+Native Windows PowerShell 5.1 validation is explicitly deferred by Andy. Later
+feature work may proceed, but release reporting must describe native Windows
+support as implemented and unverified until that manual gate is resumed.
+Automated Windows regression testing remains future work in issue #4.
 
 ## Testing Strategy
 
@@ -297,7 +306,11 @@ Andy will run the native Windows validation for this release. Automated Windows 
 
 Before editing either committed skill body, run pressure scenarios against the current version and record exact behavior. Scenarios combine early command-runner return, an empty output artifact, a live reviewer, time pressure, and an easy same-model fallback. This supplies the RED evidence required by `writing-skills`.
 
-The repository has no automated Codex-controller skill harness. Those pressure runs are manual fresh-context scenarios with recorded prompts and responses. Claude-controller triggering regressions continue to use the existing `claude -p` harness.
+The repository has no automated Codex-controller skill harness. Those pressure
+runs use fresh Codex contexts with recorded prompts and responses. The existing
+Claude `-p` trigger harness is not used as evidence: headless mode is not a
+reliable proxy for normal interactive Claude Code controller behavior, and the
+harness bypasses permissions that a trigger-only test does not need.
 
 ### RED baseline for adapters
 
@@ -333,7 +346,8 @@ Run Bash tests locally. Commit equivalent PowerShell tests and run them during A
 
 ### Skill pressure tests
 
-Repeat the RED scenarios after each skill edit. Verify the controller:
+Repeat the RED scenarios in fresh Codex contexts after each skill edit. Verify
+the Codex controller:
 
 - Selects the opposite provider from concrete runtime evidence.
 - Attaches to an existing matching run.
@@ -344,17 +358,22 @@ Repeat the RED scenarios after each skill edit. Verify the controller:
 
 ### Real CLI integration
 
-Run actual managed reviews for:
+Run actual managed reviews under the Codex controller for:
 
 - Claude document review.
 - Claude code-diff review in a disposable fixture repository.
-- Codex prompt-based document review.
-- Codex native code review.
 - A run whose status and `wait` behavior are observed before completion.
 
-Verify preflight, restricted tools, provider session identity where available, detachment, locking, terminal state, native result capture, attempt linking, and cleanup. Run existing skill-triggering and plugin validation suites as regressions.
+Verify preflight, restricted tools, provider session identity, persistent Codex
+process hosting, locking, terminal state, native result capture, inspection
+evidence, and cleanup. Deterministic fake-CLI tests continue covering all three
+profiles. Validate Claude-controller behavior separately in a normal manual
+Claude Code session; do not use `claude -p` as its proxy.
 
-The native Windows manual test repeats the deterministic PowerShell suite and the three profiles with real CLIs where credentials are available. It includes a path containing spaces and verifies PowerShell Git permissions.
+The deferred native Windows manual test repeats the deterministic PowerShell
+suite under PowerShell 5.1. If a real-model Windows check is resumed from the
+Codex controller, it exercises `claude-prompt` against a disposable fixture;
+normal Claude-controller behavior remains an interactive plugin check.
 
 ## Files and Delivery
 
@@ -388,7 +407,9 @@ Implementation stays on the existing `external-for-codex` branch and uses no wor
 - Native Windows requires PowerShell but not Git Bash.
 - Same-model fallbacks are clearly labeled degraded.
 - Artifacts survive until triage or diagnosis, and cleanup cannot target arbitrary paths.
-- Deterministic Bash tests, skill pressure tests, real Linux CLI integrations, existing regressions, and Andy's manual native Windows tests pass.
+- Deterministic Bash tests, Codex-controller skill pressure tests, real
+  Codex-to-Claude Linux integrations, existing non-headless regressions, and
+  Andy's deferred manual native Windows tests are accurately reported.
 - Version and release documentation are synchronized at `1.5.0`.
 
 ## External Review Decisions
