@@ -3,7 +3,7 @@
 ## Select the platform adapter
 
 - Native Windows: `invoke-reviewer.ps1`
-- Linux, macOS, and WSL: `invoke-reviewer.sh`
+- Linux, macOS, and WSL (POSIX): `invoke-reviewer.sh`
 
 Resolve the adapter from the absolute directory containing this reference and
 its sibling `SKILL.md`; never resolve it relative to the user's project. Under
@@ -11,13 +11,13 @@ Claude Code, `${CLAUDE_PLUGIN_ROOT}/skills/external-review` is the preferred
 root when available. Under Codex, use the absolute skill source directory
 provided by the skill catalog. Quote every resolved path.
 
-Run the selected adapter's `check PROFILE` before model-backed work.
+When using this for the first time in a session run the selected adapter's `check PROFILE` before model-backed work.
 
 ## Codex controller process hosting
 
 This section applies only when a Codex/OpenAI controller selects
 `claude-prompt`. It does not change a Claude Code controller's invocation of
-either Codex profile.
+either Codex profile. Claude Code controller should skip this section. 
 
 Claude needs provider network access. When that requires approved execution
 outside Codex's normal sandbox, open one approved persistent shell session and

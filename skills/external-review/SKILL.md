@@ -69,6 +69,6 @@ degraded.
 ## Triage and summary
 
 Accept and apply clear improvements, reject feedback contradicted by deliberate
-context, and escalate genuine judgment calls. Summarize Applied / Skipped /
-Input needed. Use `superartes:commit-message` for document changes that are
+context (especially known user decisions), and escalate genuine judgment calls. Summarize Applied / Skipped /
+Input needed. Use `superartes:commit-message` to document changes that are
 committed.
