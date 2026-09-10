@@ -229,6 +229,15 @@ set -u
 ROOT_DIR=$(cd "$(dirname "$0")/../.." && pwd)
 RUNNER="$ROOT_DIR/skills/external-review/invoke-codex.sh"
 
+# Fail loudly if the runner is missing, instead of letting the harness supply
+# the exit codes the assertions expect. `bash <missing-script>` exits 127, which
+# is exactly what the missing-codex test expects — so without this guard a
+# suite pointed at nothing reports assertions as PASSED for the wrong reason.
+if [ ! -f "$RUNNER" ]; then
+    printf 'FATAL: runner not found: %s\n' "$RUNNER" >&2
+    exit 1
+fi
+
 passed=0
 failed=0
 
@@ -1202,8 +1211,8 @@ verification and Task 6 says so in the user-facing documentation.
 There is deliberately **no PowerShell version gate**. The 1,728-line adapter targeted 5.1
 exclusively and rejected 7 before dispatch; a runner this small has no reason to.
 
-The Windows run directory carries four files the POSIX one does not — `stdin`,
-`argv.json`, `worker-log` and `worker-err`. That is deliberate, not drift. The shell
+The Windows run directory carries three files the POSIX one does not — `stdin`,
+`argv.json` and `worker-log` (its `worker-err` is the counterpart of POSIX `launch-err`). That is deliberate, not drift. The shell
 runner passes its argument vector straight to the detached child inside one `sh -c`,
 whereas the PowerShell worker is a *separately launched process* that must read back
 what it was asked to run; and the worker's own two streams must be redirected to files
@@ -1230,9 +1239,13 @@ Create `skills/external-review/invoke-codex.ps1`:
 #   invoke-codex.ps1 status  <run-dir>
 #   invoke-codex.ps1 wait    <run-dir> <timeout-seconds>
 #   invoke-codex.ps1 discard <run-dir> [--force]
+#   invoke-codex.ps1 --help
 #
 # Exit codes: 0 completion recorded, 3 not recorded, 64 usage, 65 bad run directory,
-#             66 discard refused, 127 codex not found.
+#             66 discard refused, 127 codex not found. 65 covers any case where
+#             the run's storage is unusable: it could not be created, written to,
+#             validated as a run directory this runner made, or removed — and the
+#             case where the run exists but its worker could not be launched.
 #
 # `__run` is an internal subcommand. `start` re-invokes this script with it in a
 # hidden window, and that hidden copy is what blocks on codex and writes the
@@ -1245,12 +1258,18 @@ Create `skills/external-review/invoke-codex.ps1`:
 
 $ErrorActionPreference = 'Stop'
 
-$RunsRoot = Join-Path ([System.IO.Path]::GetTempPath()) 'superartes-codex-runs'
+$RunsDirName = 'superartes-codex-runs'
+$RunsRoot = Join-Path ([System.IO.Path]::GetTempPath()) $RunsDirName
 
-# Seconds between sentinel checks in `wait`. Overridable for the test suite only.
-$PollInterval = 2
+# Seconds between sentinel checks in `wait`. Overridable for the test suite only,
+# and held as a STRING here because it is validated in Wait-ForRun, which is its
+# only consumer. Validating it at script scope instead would fail `start`,
+# `status` and `discard` as well — on Windows only, since the shell sibling
+# validates inside `wait` — answering a request to discard a run with a complaint
+# about a poll interval the caller never mentioned.
+$PollInterval = '2'
 if ($env:SUPERARTES_CODEX_POLL_INTERVAL) {
-    $PollInterval = [int] $env:SUPERARTES_CODEX_POLL_INTERVAL
+    $PollInterval = $env:SUPERARTES_CODEX_POLL_INTERVAL
 }
 
 function Test-OnWindows {
@@ -1260,11 +1279,44 @@ function Test-OnWindows {
     return ($PSVersionTable.PSEdition -eq 'Desktop') -or ($IsWindows -eq $true)
 }
 
-function Get-NullDevice {
-    # Start-Process resolves a bare "NUL" as a relative path, so a detached
-    # process on Windows needs the absolute pseudo-stream.
-    if (Test-OnWindows) { return '\\.\NUL' }
-    return '/dev/null'
+function Resolve-PhysicalPath {
+    # Absolute AND physical, matching the shell sibling's `cd "$dir" && pwd -P`.
+    # An agent records a printed path as a literal string and reuses it from a
+    # different process on a later tool call, so a symlinked checkout must be
+    # recorded identically by both runners. Resolve-Path normalises but never
+    # resolves a link, which is why it is not enough on its own.
+    #
+    # PowerShell 7 resolves the whole chain through ResolveLinkTarget. Windows
+    # PowerShell 5.1 has no such method and falls back to the reparse point's own
+    # target, which covers the final component — a junction or a directory
+    # symlink, the usual case — and leaves intermediate links unresolved.
+    param([string] $Path)
+    $item = Get-Item -LiteralPath (Resolve-Path -LiteralPath $Path).ProviderPath -Force
+    if ($item.PSObject.Methods.Name -contains 'ResolveLinkTarget') {
+        $target = $item.ResolveLinkTarget($true)
+        if ($target) { return $target.FullName }
+        return $item.FullName
+    }
+    if ($item.Target) { return ([System.IO.Path]::GetFullPath(@($item.Target)[0])) }
+    return $item.FullName
+}
+
+function Resolve-CodexPath {
+    # Resolve `codex` to one absolute program path, in the parent, once. Returns
+    # an empty string when it cannot be found.
+    #
+    # -CommandType Application earns its place twice over. It rejects aliases,
+    # functions and .ps1 files — all of which a bare Get-Command accepts and the
+    # worker could not launch — and it returns the actual program file, which for
+    # the documented npm install route is codex.cmd.
+    #
+    # The worker cannot repeat this lookup for itself. Its stream redirects force
+    # UseShellExecute=false, so Windows goes through CreateProcessW, which appends
+    # only ".exe" and never consults PATHEXT: a bare "codex" resolves here and
+    # fails there. Recording the resolved path is what closes that gap.
+    $found = @(Get-Command 'codex' -CommandType Application -ErrorAction SilentlyContinue)
+    if ($found.Count -eq 0) { return '' }
+    return $found[0].Source
 }
 
 function Get-HostExecutable {
@@ -1296,8 +1348,8 @@ function Write-Line {
     [Console]::Out.Flush()
 }
 
-function Write-Usage {
-    [Console]::Error.WriteLine(@'
+function Get-UsageText {
+    return @'
 Usage:
   invoke-codex.ps1 start prompt <work-dir> <prompt-file>
   invoke-codex.ps1 start review <work-dir> uncommitted
@@ -1306,7 +1358,21 @@ Usage:
   invoke-codex.ps1 status  <run-dir>
   invoke-codex.ps1 wait    <run-dir> <timeout-seconds>
   invoke-codex.ps1 discard <run-dir> [--force]
-'@)
+  invoke-codex.ps1 --help
+'@
+}
+
+function Write-Usage {
+    # Asking for help is a success path and goes to stdout. The sibling
+    # invoke-reviewer.sh behaves the same way; a controller written against one
+    # runner should not trip on the other.
+    [Console]::Out.WriteLine((Get-UsageText))
+    [Console]::Out.Flush()
+    exit 0
+}
+
+function Write-UsageError {
+    [Console]::Error.WriteLine((Get-UsageText))
     exit 64
 }
 
@@ -1327,6 +1393,21 @@ function Write-RunFile {
 function Read-RunFile {
     param([string] $Path)
     return ([System.IO.File]::ReadAllText($Path)).Trim()
+}
+
+function Read-RunFileOrEmpty {
+    # For the status fields the shell sibling prints unconditionally with
+    # `cat 2>/dev/null`: a missing file is an empty value, not an error.
+    param([string] $Path)
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return '' }
+    return (Read-RunFile $Path)
+}
+
+function Remove-RunDirectoryQuietly {
+    # Best-effort cleanup on an error path, with `rm -rf` semantics: failing to
+    # clean up must not turn a usage error into a stack trace and exit 1.
+    param([string] $RunDir)
+    Remove-Item -Recurse -Force -LiteralPath $RunDir -ErrorAction SilentlyContinue
 }
 
 function Select-Rest {
@@ -1353,13 +1434,19 @@ function ConvertTo-ProcessArgument {
 }
 
 function Assert-RunDirectory {
+    # Reject anything that is not a run directory this script created. BOTH marker
+    # files are required, exactly as the shell sibling requires them: a directory
+    # carrying only one of them has not earned the rm -rf that `discard` performs.
+    # That shape is reachable, not theoretical — Start-Run writes started-at before
+    # mode, so a start killed between those two lines leaves precisely it.
     param([string] $RunDir)
-    if ([string]::IsNullOrWhiteSpace($RunDir)) { Write-Usage }
+    if ([string]::IsNullOrWhiteSpace($RunDir)) { Write-UsageError }
     if (-not (Test-Path -LiteralPath $RunDir -PathType Container)) {
         Stop-WithError 65 "not a run directory: $RunDir"
     }
-    if (-not (Test-Path -LiteralPath (Join-Path $RunDir 'started-at') -PathType Leaf)) {
-        Stop-WithError 65 "run directory is malformed (no started-at): $RunDir"
+    if ((-not (Test-Path -LiteralPath (Join-Path $RunDir 'started-at') -PathType Leaf)) -or
+        (-not (Test-Path -LiteralPath (Join-Path $RunDir 'mode') -PathType Leaf))) {
+        Stop-WithError 65 "run directory is malformed (missing started-at or mode): $RunDir"
     }
 }
 
@@ -1367,42 +1454,78 @@ function Start-Run {
     param([string] $Mode, [string] $WorkDir, [object[]] $Rest)
 
     if ([string]::IsNullOrWhiteSpace($Mode) -or [string]::IsNullOrWhiteSpace($WorkDir)) {
-        Write-Usage
+        Write-UsageError
     }
-    if (-not (Get-Command 'codex' -ErrorAction SilentlyContinue)) {
+    # Resolve codex here, once, and hand the answer to the worker in the run
+    # directory. See Resolve-CodexPath: the worker cannot do this for itself.
+    $codexPath = Resolve-CodexPath
+    if ([string]::IsNullOrWhiteSpace($codexPath)) {
         Stop-WithError 127 'codex is not on PATH'
     }
     if (-not (Test-Path -LiteralPath $WorkDir -PathType Container)) {
         Stop-WithError 64 "work directory does not exist: $WorkDir"
     }
-    $WorkDir = (Resolve-Path -LiteralPath $WorkDir).ProviderPath
+    try { $WorkDir = Resolve-PhysicalPath $WorkDir }
+    catch { Stop-WithError 64 "cannot enter work directory: $WorkDir" }
 
-    New-Item -ItemType Directory -Path $RunsRoot -Force | Out-Null
+    # Every storage failure below is a 65. Left unguarded these surface as exit 1
+    # with a raw stack trace, which is outside this runner's documented contract
+    # and tells a controller nothing it can act on.
+    try { New-Item -ItemType Directory -Path $RunsRoot -Force | Out-Null }
+    catch { Stop-WithError 65 "cannot create the runs root: $RunsRoot" }
+    # A fixed, predictable name in a shared temp directory, holding repository
+    # contents. On Windows the user's TEMP is already private; elsewhere, tighten
+    # it explicitly rather than trusting the ambient umask.
+    if (-not (Test-OnWindows)) {
+        try { & chmod 700 $RunsRoot }
+        catch { Stop-WithError 65 "cannot restrict the runs root: $RunsRoot" }
+        if ($LASTEXITCODE -ne 0) { Stop-WithError 65 "cannot restrict the runs root: $RunsRoot" }
+    }
     $runDir = Join-Path $RunsRoot ('run.' + [System.IO.Path]::GetRandomFileName().Replace('.', ''))
-    New-Item -ItemType Directory -Path $runDir | Out-Null
-    $runDir = (Resolve-Path -LiteralPath $runDir).ProviderPath
+    try {
+        New-Item -ItemType Directory -Path $runDir | Out-Null
+        $runDir = Resolve-PhysicalPath $runDir
+    }
+    catch { Stop-WithError 65 'cannot create a run directory' }
 
-    Write-RunFile (Join-Path $runDir 'started-at') (Get-EpochSeconds)
-    Write-RunFile (Join-Path $runDir 'mode') $Mode
-    Write-RunFile (Join-Path $runDir 'work-dir') $WorkDir
+    # An empty FILE, used as null stdin for the worker and, in review mode, for
+    # codex itself. It has to be a real file: Start-Process pre-validates every
+    # redirect path with File.Exists, and the Windows null device \\.\NUL is a DOS
+    # device rather than a file, so naming it there makes the launch throw before
+    # RUN_DIR is ever printed. A file also works identically on both platforms,
+    # which /dev/null and \\.\NUL never could.
+    $nullStdin = Join-Path $runDir 'null-stdin'
+    try {
+        $emptyEncoding = New-Object System.Text.UTF8Encoding($false)
+        [System.IO.File]::WriteAllText($nullStdin, '', $emptyEncoding)
+        Write-RunFile (Join-Path $runDir 'started-at') (Get-EpochSeconds)
+        Write-RunFile (Join-Path $runDir 'mode') $Mode
+        Write-RunFile (Join-Path $runDir 'work-dir') $WorkDir
+        Write-RunFile (Join-Path $runDir 'codex-path') $codexPath
+    }
+    catch { Stop-WithError 65 "cannot write to the run directory: $runDir" }
 
     $resultPath = Join-Path $runDir 'result'
-    $stdinPath = Get-NullDevice
+    $stdinPath = $nullStdin
     $argv = @()
 
     if ($Mode -eq 'prompt') {
         $promptFile = $Rest[0]
         if ([string]::IsNullOrWhiteSpace($promptFile)) {
-            Remove-Item -Recurse -Force -LiteralPath $runDir
-            Write-Usage
+            Remove-RunDirectoryQuietly $runDir
+            Write-UsageError
         }
         if (-not (Test-Path -LiteralPath $promptFile -PathType Leaf)) {
-            Remove-Item -Recurse -Force -LiteralPath $runDir
+            Remove-RunDirectoryQuietly $runDir
             Stop-WithError 64 "prompt file not found: $promptFile"
         }
         # Copy the prompt in so the caller may delete its own temporary copy as
         # soon as start returns, and the run stays self-contained.
-        Copy-Item -LiteralPath $promptFile -Destination (Join-Path $runDir 'prompt')
+        try { Copy-Item -LiteralPath $promptFile -Destination (Join-Path $runDir 'prompt') }
+        catch {
+            Remove-RunDirectoryQuietly $runDir
+            Stop-WithError 65 'cannot copy the prompt file'
+        }
         $stdinPath = Join-Path $runDir 'prompt'
         $argv = @('exec', '-', '-s', 'read-only', '--skip-git-repo-check', '-o', $resultPath)
     }
@@ -1416,40 +1539,43 @@ function Start-Run {
         $scopeKind = $Rest[0]
         $scopeValue = $Rest[1]
         if ([string]::IsNullOrWhiteSpace($scopeKind)) {
-            Remove-Item -Recurse -Force -LiteralPath $runDir
-            Write-Usage
+            Remove-RunDirectoryQuietly $runDir
+            Write-UsageError
         }
         if ($scopeKind -eq 'uncommitted') {
             if (-not [string]::IsNullOrWhiteSpace($scopeValue)) {
-                Remove-Item -Recurse -Force -LiteralPath $runDir
+                Remove-RunDirectoryQuietly $runDir
                 Stop-WithError 64 'uncommitted takes no scope value'
             }
             $argv = @('exec', '-s', 'read-only', 'review', '--uncommitted', '--skip-git-repo-check', '-o', $resultPath)
         }
         elseif ($scopeKind -eq 'base' -or $scopeKind -eq 'commit') {
             if ([string]::IsNullOrWhiteSpace($scopeValue)) {
-                Remove-Item -Recurse -Force -LiteralPath $runDir
+                Remove-RunDirectoryQuietly $runDir
                 Stop-WithError 64 "$scopeKind requires a scope value"
             }
             $argv = @('exec', '-s', 'read-only', 'review', "--$scopeKind", $scopeValue, '--skip-git-repo-check', '-o', $resultPath)
         }
         else {
-            Remove-Item -Recurse -Force -LiteralPath $runDir
+            Remove-RunDirectoryQuietly $runDir
             Stop-WithError 64 "unknown scope kind: $scopeKind (expected uncommitted, base or commit)"
         }
     }
     else {
-        Remove-Item -Recurse -Force -LiteralPath $runDir
-        Write-Usage
+        Remove-RunDirectoryQuietly $runDir
+        Write-UsageError
     }
 
-    Write-RunFile (Join-Path $runDir 'stdin') $stdinPath
-    Write-RunFile (Join-Path $runDir 'cmd') ('codex ' + ($argv -join ' '))
-    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-    [System.IO.File]::WriteAllText(
-        (Join-Path $runDir 'argv.json'),
-        (ConvertTo-Json -InputObject $argv -Compress),
-        $utf8NoBom)
+    try {
+        Write-RunFile (Join-Path $runDir 'stdin') $stdinPath
+        Write-RunFile (Join-Path $runDir 'cmd') ('codex ' + ($argv -join ' '))
+        $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+        [System.IO.File]::WriteAllText(
+            (Join-Path $runDir 'argv.json'),
+            (ConvertTo-Json -InputObject $argv -Compress),
+            $utf8NoBom)
+    }
+    catch { Stop-WithError 65 "cannot write to the run directory: $runDir" }
 
     # Re-invoke this script for the worker. Every path element is quoted
     # explicitly because Start-Process will not do it.
@@ -1464,33 +1590,134 @@ function Start-Run {
     # whole review finishes — which is precisely the 600-second shell-tool timeout
     # this runner exists to escape. This is the PowerShell equivalent of the shell
     # sibling's `</dev/null >/dev/null 2>&1`.
+    #
+    # It is NOT a logging channel. Start-Process pumps a redirected stream through
+    # THIS process, and this process is about to exit, so nothing the worker
+    # writes to its own stdout or stderr is ever copied anywhere: worker-log and
+    # worker-stderr are created here and then stay empty for the life of the run.
+    # That is expected, not a symptom. Everything a controller needs to read comes
+    # from worker-err, which the worker writes for itself — see Write-WorkerError.
+    #
+    # worker-stderr is deliberately NOT named worker-err. Two processes writing
+    # one file through two mechanisms is how a sharing violation gets introduced:
+    # this process holds its redirect target open until it exits, and a worker
+    # that fails in its first milliseconds would then be unable to write its own
+    # explanation — silently, since Write-WorkerError may not throw.
     $startArgs = @{
         FilePath = (Get-HostExecutable)
         ArgumentList = $launchArgs
         NoNewWindow = $true
-        RedirectStandardInput = (Get-NullDevice)
+        RedirectStandardInput = $nullStdin
         RedirectStandardOutput = (Join-Path $runDir 'worker-log')
-        RedirectStandardError = (Join-Path $runDir 'worker-err')
+        RedirectStandardError = (Join-Path $runDir 'worker-stderr')
     }
-    Start-Process @startArgs | Out-Null
+    try { Start-Process @startArgs | Out-Null }
+    catch {
+        # The worker never started, so nothing will ever write the sentinel.
+        # Record why where status looks for it rather than dying silently.
+        #
+        # This is the one other write to worker-err, and it cannot race the
+        # worker's own: reaching it means Start-Process THREW, so no worker
+        # exists, and this process exits on the next line.
+        [System.IO.File]::WriteAllText(
+            (Join-Path $runDir 'worker-err'),
+            ($_.Exception.Message + "`n"),
+            (New-Object System.Text.UTF8Encoding($false)))
+        Stop-WithError 65 "cannot launch the worker: $($_.Exception.Message)"
+    }
 
     Write-Line "RUN_DIR=$runDir"
     return 0
 }
 
+function Write-WorkerError {
+    # The worker records its OWN diagnostics, because the parent's stream
+    # redirection cannot carry them. Start-Process pumps a redirected stream
+    # through the PARENT process, so once `start` has exited — which is the entire
+    # point of a detached worker — nothing copies the worker's stdout or stderr
+    # into worker-log or worker-stderr, and both stay empty however loudly it
+    # fails. Verified on Linux; the pumping is done by the same PowerShell code
+    # path on Windows. The parent's redirects are still what detaches the worker
+    # from the caller's console — they are simply not a logging channel. This
+    # file, worker-err, is written by the worker alone and by no other mechanism.
+    #
+    # What this does NOT cover: a worker that dies before its first statement — a
+    # missing interpreter, a blocked execution policy, a script that will not
+    # parse. Nothing can report those, because the process that would write the
+    # explanation is the one that failed to start, and the parent cannot see it
+    # either. The shell sibling does cover them, in launch-err, because there a
+    # SHELL owns the redirection. Closing that gap here would mean launching the
+    # worker through cmd.exe with its own redirection operators; it is recorded as
+    # a known difference instead, because that dispatch cannot be verified on the
+    # platform this file is developed on.
+    #
+    # Nothing here may throw: this runs on the path where something already has.
+    param([string] $RunDir, [string] $Message)
+    try {
+        [System.IO.File]::WriteAllText(
+            (Join-Path $RunDir 'worker-err'),
+            ($Message + "`n"),
+            (New-Object System.Text.UTF8Encoding($false)))
+    }
+    catch { }
+}
+
 function Invoke-RunWorker {
     # The hidden copy: block on codex, then publish the exit status atomically.
+    #
+    # Everything is wrapped, because any failure in here means the sentinel will
+    # never be written, and an unrecorded run with no explanation is exactly the
+    # "wait forever" state worker-err exists to prevent.
+    param([string] $RunDir)
+    try {
+        Invoke-RunWorkerCore $RunDir
+    }
+    catch {
+        Write-WorkerError $RunDir $_.Exception.Message
+    }
+}
+
+function Invoke-RunWorkerCore {
     param([string] $RunDir)
 
     $workDir = Read-RunFile (Join-Path $RunDir 'work-dir')
     $stdinPath = Read-RunFile (Join-Path $RunDir 'stdin')
+    $codexPath = Read-RunFile (Join-Path $RunDir 'codex-path')
     $rawArgv = @(ConvertFrom-Json ([System.IO.File]::ReadAllText((Join-Path $RunDir 'argv.json'))))
     $argv = @()
     foreach ($item in $rawArgv) { $argv += (ConvertTo-ProcessArgument $item) }
 
+    # Launch the exact program the parent resolved, never a bare name.
+    #
+    # A .cmd or .bat — which is how the documented npm install route puts codex on
+    # PATH — cannot be launched directly here: the redirects below force
+    # UseShellExecute=false, and CreateProcessW refuses a batch file with Win32
+    # 193. Note the trap in that sentence: the redirection this runner needs in
+    # order to detach is exactly what disables the ShellExecute path that would
+    # otherwise have handled the .cmd. So hand it to the command interpreter.
+    #
+    # /d skips any AutoRun command from the registry. /s makes cmd strip exactly
+    # the outermost quote pair and take the rest verbatim, which is the only
+    # reliable form once the program path itself needs quoting — and the temp path
+    # holding `result` routinely contains a space on Windows, under a user name
+    # like "John Smith".
+    $launchFile = $codexPath
+    $launchArgs = $argv
+    $extension = [System.IO.Path]::GetExtension($codexPath)
+    if (($extension -eq '.cmd') -or ($extension -eq '.bat')) {
+        # ComSpec is normally set; when it is not, an empty -FilePath throws and
+        # the run would be recorded as exit 127 — "codex not found" — for a codex
+        # that is present and a command interpreter that is merely unnamed.
+        $launchFile = $env:ComSpec
+        if ([string]::IsNullOrWhiteSpace($launchFile)) { $launchFile = 'cmd.exe' }
+        $inner = '"' + $codexPath + '"'
+        if ($argv.Count -gt 0) { $inner = $inner + ' ' + ($argv -join ' ') }
+        $launchArgs = @('/d', '/s', '/c', ('"' + $inner + '"'))
+    }
+
     $exitCode = 127
     try {
-        $proc = Start-Process -FilePath 'codex' -ArgumentList $argv `
+        $proc = Start-Process -FilePath $launchFile -ArgumentList $launchArgs `
             -WorkingDirectory $workDir -NoNewWindow -Wait -PassThru `
             -RedirectStandardOutput (Join-Path $RunDir 'log') `
             -RedirectStandardError (Join-Path $RunDir 'err-log') `
@@ -1511,11 +1738,18 @@ function Invoke-RunWorker {
 function Get-RunStatus {
     param([string] $RunDir)
     Assert-RunDirectory $RunDir
-    $RunDir = (Resolve-Path -LiteralPath $RunDir).ProviderPath
+    $RunDir = Resolve-PhysicalPath $RunDir
 
+    # Field order matches the shell sibling exactly, and WORK_DIR and CMD are
+    # printed unconditionally as it prints them, so one parser reads both runners.
     $started = [int] (Read-RunFile (Join-Path $RunDir 'started-at'))
     Write-Line "RUN_DIR=$RunDir"
     Write-Line ('MODE=' + (Read-RunFile (Join-Path $RunDir 'mode')))
+    # A recovered run is identified by its recorded metadata — that is the whole
+    # justification for the fixed runs root — so status must report which working
+    # tree it belongs to and what was actually run, not merely that it exists.
+    Write-Line ('WORK_DIR=' + (Read-RunFileOrEmpty (Join-Path $RunDir 'work-dir')))
+    Write-Line ('CMD=' + (Read-RunFileOrEmpty (Join-Path $RunDir 'cmd')))
     Write-Line ('ELAPSED_SECONDS=' + ((Get-EpochSeconds) - $started))
     Write-Line ('RESULT=' + (Join-Path $RunDir 'result'))
     # Codex writes its final message to stdout and its progress event stream to
@@ -1523,8 +1757,11 @@ function Get-RunStatus {
     Write-Line ('STDOUT_LOG=' + (Join-Path $RunDir 'log'))
     Write-Line ('STDERR_LOG=' + (Join-Path $RunDir 'err-log'))
 
-    # A non-empty worker-err means the worker never got as far as running codex.
-    # Surfacing it is what stops "no exit-code yet" reading as "still working".
+    # A non-empty worker-err means the worker never got as far as running codex,
+    # or died before it could record completion. Surfacing it is what stops "no
+    # exit-code yet" from reading as "still working". It is the counterpart of the
+    # shell sibling's launch-err, and status names it with the same key. The
+    # worker writes that file itself; no stream redirect feeds it.
     $workerErr = Join-Path $RunDir 'worker-err'
     if ((Test-Path -LiteralPath $workerErr -PathType Leaf) -and ((Get-Item -LiteralPath $workerErr).Length -gt 0)) {
         Write-Line ('LAUNCH_ERROR=' + $workerErr)
@@ -1551,15 +1788,26 @@ function Get-RunStatus {
 function Wait-ForRun {
     param([string] $RunDir, [string] $TimeoutSeconds)
     Assert-RunDirectory $RunDir
-    if ($TimeoutSeconds -notmatch '^[0-9]+$') { Write-Usage }
+    if ($TimeoutSeconds -notmatch '^[0-9]+$') { Write-UsageError }
+
+    # The poll interval arrives from the environment, so hold it to the same
+    # standard as the timeout argument — here, where it is the only thing that
+    # consumes it. Zero would spin the loop below forever without ever advancing
+    # $waited. Leading zeros are accepted because the shell sibling accepts them,
+    # and the offending value is quoted back because a caller who exported it in
+    # a parent shell may not know what it currently holds.
+    if (($PollInterval -notmatch '^[0-9]+$') -or ([int] $PollInterval -le 0)) {
+        Stop-WithError 64 "SUPERARTES_CODEX_POLL_INTERVAL must be a positive integer: $PollInterval"
+    }
+    $poll = [int] $PollInterval
 
     $timeout = [int] $TimeoutSeconds
     $waited = 0
     $sentinel = Join-Path $RunDir 'exit-code'
     while ($waited -lt $timeout) {
         if (Test-Path -LiteralPath $sentinel -PathType Leaf) { break }
-        Start-Sleep -Seconds $PollInterval
-        $waited = $waited + $PollInterval
+        Start-Sleep -Seconds $poll
+        $waited = $waited + $poll
     }
 
     return (Get-RunStatus $RunDir)
@@ -1569,31 +1817,61 @@ function Remove-Run {
     # Removes the run's artifacts. It does NOT stop the reviewer: this runner has
     # no cancellation, so a discarded review keeps running and keeps spending
     # tokens until it finishes on its own. Say so when reporting to the user.
-    param([string] $RunDir, [string] $Force)
+    param([object[]] $Arguments)
+
+    # Accept --force on either side of the run directory: an agent may reasonably
+    # write it first, and "not a run directory: --force" is a misleading answer.
+    $force = $false
+    $target = ''
+    foreach ($item in @($Arguments)) {
+        if ($item -eq '--force') { $force = $true }
+        elseif ([string]::IsNullOrWhiteSpace($target)) { $target = $item }
+        else { Write-UsageError }
+    }
+
+    $RunDir = $target
     Assert-RunDirectory $RunDir
 
     $sentinel = Join-Path $RunDir 'exit-code'
-    if ((-not (Test-Path -LiteralPath $sentinel -PathType Leaf)) -and ($Force -ne '--force')) {
+    if ((-not (Test-Path -LiteralPath $sentinel -PathType Leaf)) -and (-not $force)) {
         Stop-WithError 66 "completion not recorded for: $RunDir (pass --force to discard the artifacts anyway)"
     }
 
-    # Canonicalise BOTH sides before comparing. A string-prefix test accepts
-    # traversal — a path ending "run.x/../../victim" starts with the same prefix —
-    # and also rejects a legitimate path spelled differently.
-    if (-not (Test-Path -LiteralPath $RunsRoot -PathType Container)) {
-        Stop-WithError 65 "runs root is missing: $RunsRoot"
-    }
-    $canonRoot = (Resolve-Path -LiteralPath $RunsRoot).ProviderPath
-    $canonRun = (Resolve-Path -LiteralPath $RunDir).ProviderPath
-
-    if ((Split-Path -Parent $canonRun) -ne $canonRoot) {
-        Stop-WithError 65 "refusing to remove a path that is not a direct child of ${canonRoot}: $canonRun"
-    }
+    # Validate the SHAPE of the canonicalised path rather than comparing against a
+    # runs root recomputed from the environment. Every subcommand is a separate
+    # process for an agent, so a run started under one TEMP and discarded under
+    # another would otherwise be impossible to clean up, and the error would read
+    # as a corrupted run rather than an environment mismatch.
+    #
+    # Canonicalising first is what defeats traversal: a path ending
+    # "run.x/../../victim" resolves to a basename of "victim", which fails the
+    # run.* test below.
+    $canonRun = Resolve-PhysicalPath $RunDir
     if (-not (Split-Path -Leaf $canonRun).StartsWith('run.', [System.StringComparison]::Ordinal)) {
         Stop-WithError 65 "refusing to remove a directory this runner did not create: $canonRun"
     }
+    # A drive or share root has no parent, and Split-Path -Leaf throws on the
+    # empty string it returns — which would exit 1 instead of the documented 65.
+    $canonParent = Split-Path -Parent $canonRun
+    if ([string]::IsNullOrEmpty($canonParent) -or
+        ((Split-Path -Leaf $canonParent) -ne $RunsDirName)) {
+        Stop-WithError 65 "refusing to remove a path outside a ${RunsDirName} directory: $canonRun"
+    }
 
-    Remove-Item -Recurse -Force -LiteralPath $canonRun
+    # rm -rf semantics: the removal itself must not throw. On Windows a still
+    # running worker holds log, err-log, worker-log and worker-stderr open, and
+    # Remove-Item raises a sharing violation partway through — which is the
+    # documented `discard --force` case, so an unguarded call would exit 1 after a
+    # partial delete and leave the Test-Path check below unreachable. Let that
+    # check be the one that decides.
+    #
+    # The consequence is a known difference from the shell sibling, where an open
+    # file never blocks unlink: on Windows, `discard --force` on an IN-FLIGHT run
+    # can leave part of the directory behind and exit 65, "run directory still
+    # present after removal", where the sibling exits 0. Discarding a finished run
+    # behaves identically on both.
+    try { Remove-Item -Recurse -Force -LiteralPath $canonRun }
+    catch { }
     if (Test-Path -LiteralPath $canonRun) {
         Stop-WithError 65 "run directory still present after removal: $canonRun"
     }
@@ -1617,14 +1895,17 @@ elseif ($command -eq 'wait') {
     exit (Wait-ForRun $rest[0] $rest[1])
 }
 elseif ($command -eq 'discard') {
-    exit (Remove-Run $rest[0] $rest[1])
+    exit (Remove-Run @(Select-Rest $args 1))
 }
 elseif ($command -eq '__run') {
     Invoke-RunWorker $rest[0]
     exit 0
 }
-else {
+elseif (($command -eq '-h') -or ($command -eq '--help')) {
     Write-Usage
+}
+else {
+    Write-UsageError
 }
 ```
 
@@ -1654,8 +1935,12 @@ Create `tests/external-review/Test-InvokeCodex.ps1`:
 # Uses a fake `codex` on PATH, so it needs no credentials, network or model
 # tokens. Runs under Windows PowerShell 5.1 and under PowerShell 7 on any
 # platform. The Linux run is a syntax-and-logic check, not native-Windows
-# verification: on Windows the fake is reached through a codex.cmd shim whose
-# behaviour has NOT been exercised on a Windows host.
+# verification. Three things it cannot reach: on Windows the fake is served by a
+# codex.cmd shim, the runner then dispatches that through cmd.exe, and
+# `Get-Command -CommandType Application` has to pick the .cmd out of a PATHEXT
+# search that Linux has no equivalent of — nothing here shadows `codex`, so the
+# resolution has only ever chosen between one candidate. None of the three has
+# been exercised on a Windows host.
 #
 #   pwsh           -NoProfile -File tests/external-review/Test-InvokeCodex.ps1
 #   powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\external-review\Test-InvokeCodex.ps1
@@ -1666,6 +1951,18 @@ $ErrorActionPreference = 'Continue'
 # backslash is a literal filename character on Linux and macOS.
 $RepoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '../..')).ProviderPath
 $Runner = Join-Path $RepoRoot 'skills/external-review/invoke-codex.ps1'
+# Fail loudly if the runner is missing, instead of letting the harness supply the
+# exit codes the assertions expect. `pwsh -File <missing-script>` exits 64 — the
+# same code this runner uses for EVERY usage error — so without this guard a suite
+# pointed at nothing reports 14 assertions as PASSED for entirely the wrong reason.
+if (-not (Test-Path -LiteralPath $Runner -PathType Leaf)) {
+    # To stderr, where the shell sibling sends it: this is a harness failure, not
+    # a line of test output.
+    [Console]::Error.WriteLine("FATAL: runner not found: $Runner")
+    [Console]::Error.Flush()
+    exit 1
+}
+
 $script:Passed = 0
 $script:Failed = 0
 
@@ -1679,13 +1976,18 @@ function AssertStatus {
     param([string] $Label, [int] $Expected, [int] $Actual)
     if ($Expected -eq $Actual) { Pass $Label } else { Fail $Label "expected exit $Expected, got $Actual" }
 }
+# -like treats its right side as a WILDCARD PATTERN, so a needle containing [, ]
+# or * would not match itself — '-o' is fine, but a run directory or a scope value
+# need not be. .Contains is a literal search. The interpolation is deliberate:
+# Get-Content -Raw on an empty file returns AutomationNull, which a [string] cast
+# leaves null and .Contains would then throw on.
 function AssertContains {
     param([string] $Label, [string] $Needle, [string] $Haystack)
-    if ($Haystack -like "*$Needle*") { Pass $Label } else { Fail $Label "expected '$Needle' in: $Haystack" }
+    if ("$Haystack".Contains($Needle)) { Pass $Label } else { Fail $Label "expected '$Needle' in: $Haystack" }
 }
 function AssertAbsent {
     param([string] $Label, [string] $Needle, [string] $Haystack)
-    if ($Haystack -like "*$Needle*") { Fail $Label "did not expect '$Needle' in: $Haystack" } else { Pass $Label }
+    if ("$Haystack".Contains($Needle)) { Fail $Label "did not expect '$Needle' in: $Haystack" } else { Pass $Label }
 }
 function AssertEquals {
     param([string] $Label, [string] $Expected, [string] $Actual)
@@ -1697,9 +1999,15 @@ function Test-OnWindowsHost {
 }
 
 function New-Sandbox {
-    # Isolated TEMP plus a fake codex on PATH. GetTempPath honours TMPDIR on Linux
-    # and TEMP on Windows, which is how the runner's runs root is isolated.
-    $sandbox = Join-Path ([System.IO.Path]::GetTempPath()) ('invoke-codex-test.' + [System.IO.Path]::GetRandomFileName().Replace('.', ''))
+    # Isolated temp directory plus a fake codex on PATH. GetTempPath honours TMPDIR
+    # on Linux and, on Windows, checks TMP FIRST and only then TEMP — which is why
+    # Invoke-Runner sets both of those. Setting TEMP alone leaves the runner writing
+    # into the real user temp on Windows.
+    # The name carries a SPACE on purpose. Quoting is the stated reason
+    # ConvertTo-ProcessArgument and the cmd `/s /c` form exist, and a Windows temp
+    # path under a user named "John Smith" is the ordinary case, not an exotic one.
+    # Putting the space here buys that coverage for every test in the file.
+    $sandbox = Join-Path ([System.IO.Path]::GetTempPath()) ('invoke-codex test.' + [System.IO.Path]::GetRandomFileName().Replace('.', ''))
     New-Item -ItemType Directory -Path $sandbox | Out-Null
     foreach ($sub in @('bin', 'tmp', 'work')) {
         New-Item -ItemType Directory -Path (Join-Path $sandbox $sub) | Out-Null
@@ -1750,15 +2058,19 @@ function Invoke-Runner {
     param([string] $Sandbox, [string[]] $RunnerArgs, [hashtable] $Overrides = @{})
 
     $saved = @{}
-    foreach ($name in @('PATH','TMPDIR','TEMP','FAKE_CODEX_ARGV','FAKE_CODEX_STDIN',
+    foreach ($name in @('PATH','TMPDIR','TEMP','TMP','FAKE_CODEX_ARGV','FAKE_CODEX_STDIN',
                         'FAKE_CODEX_SLEEP','FAKE_CODEX_EXIT','FAKE_CODEX_RESULT',
                         'SUPERARTES_CODEX_POLL_INTERVAL')) {
         $saved[$name] = (Get-Item -Path ("env:" + $name) -ErrorAction SilentlyContinue).Value
     }
 
     $env:PATH = (Join-Path $Sandbox 'bin') + [System.IO.Path]::PathSeparator + $saved['PATH']
+    # TMP as well as TEMP: Win32 GetTempPath reads TMP first, so setting only TEMP
+    # would isolate nothing on Windows and would make the cross-temp discard test
+    # a vacuous pass, its "different TEMP" being the same directory as before.
     $env:TMPDIR = Join-Path $Sandbox 'tmp'
     $env:TEMP = Join-Path $Sandbox 'tmp'
+    $env:TMP = Join-Path $Sandbox 'tmp'
     $env:FAKE_CODEX_ARGV = Join-Path $Sandbox 'argv'
     $env:FAKE_CODEX_STDIN = Join-Path $Sandbox 'stdin'
     $env:FAKE_CODEX_SLEEP = ''
@@ -1772,17 +2084,24 @@ function Invoke-Runner {
 
     # Quote every element: Start-Process joins -ArgumentList with spaces and does
     # not quote, so a sandbox path containing a space would split into two args.
+    # -ExecutionPolicy Bypass unconditionally. It is per-process and NOT inherited,
+    # so without it these children run under the machine policy — Restricted by
+    # default on Windows clients — and every assertion fails for a reason that has
+    # nothing to do with the runner. Linux pwsh accepts and ignores the switch.
     $quoted = @()
-    foreach ($item in (@('-NoProfile', '-File', $Runner) + $RunnerArgs)) {
+    foreach ($item in (@('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $Runner) + $RunnerArgs)) {
         if ($item -match '\s') { $quoted += ('"' + $item + '"') } else { $quoted += $item }
     }
 
-    # -Wait waits for the launched process AND, on Windows, for descendants that
-    # inherited its handles. The runner redirects its worker's streams to files
-    # precisely so nothing is inherited; if that ever regresses, these tests hang
-    # rather than silently pass, which is the intended failure mode.
+    # -PassThru WITHOUT -Wait, then WaitForExit on the direct child only.
+    # Start-Process -Wait waits for the whole process tree on Windows, via a job
+    # object that no redirect can opt out of, so it would block here until the fake
+    # reviewer's sleep elapsed — inverting every "unfinished run" assertion. The
+    # runner's own worker keeps -Wait, because blocking on the tree is what a
+    # worker is for.
     $proc = Start-Process -FilePath ((Get-Process -Id $PID).Path) -ArgumentList $quoted `
-        -NoNewWindow -Wait -PassThru -RedirectStandardOutput $outFile -RedirectStandardError $errFile
+        -NoNewWindow -PassThru -RedirectStandardOutput $outFile -RedirectStandardError $errFile
+    $proc.WaitForExit()
 
     $result = [pscustomobject] @{
         ExitCode = $proc.ExitCode
@@ -1800,8 +2119,26 @@ function Get-RunDir {
     return ''
 }
 
+function Get-RunDirOrFail {
+    # Without this gate an empty run directory makes later assertions pass
+    # vacuously: Test-Path on '' is false, so "the directory is gone" succeeds
+    # for a run that never started. A suite that cannot fail is worse than none.
+    param([string] $Label, [string] $StdOut)
+    $dir = Get-RunDir $StdOut
+    if ([string]::IsNullOrWhiteSpace($dir)) {
+        Fail $Label 'no RUN_DIR was printed'
+        return ''
+    }
+    if (-not (Test-Path -LiteralPath $dir -PathType Container)) {
+        Fail $Label "RUN_DIR is not a directory: $dir"
+        return ''
+    }
+    Pass $Label
+    return $dir
+}
+
 function Wait-Sentinel {
-    param([string] $RunDir, [int] $Tries = 200)
+    param([string] $RunDir, [int] $Tries = 400)
     for ($i = 0; $i -lt $Tries; $i++) {
         if (Test-Path -LiteralPath (Join-Path $RunDir 'exit-code') -PathType Leaf) { return $true }
         Start-Sleep -Milliseconds 100
@@ -1819,7 +2156,7 @@ function Test-Usage {
         (Invoke-Runner $sandbox @('start', 'review', (Join-Path $sandbox 'nope'), 'uncommitted')).ExitCode
     AssertStatus 'absent prompt file exits 64' 64 `
         (Invoke-Runner $sandbox @('start', 'prompt', (Join-Path $sandbox 'work'), (Join-Path $sandbox 'nope.md'))).ExitCode
-    Remove-Item -Recurse -Force -LiteralPath $sandbox
+    Remove-Item -Recurse -Force -LiteralPath $sandbox -ErrorAction SilentlyContinue
 }
 
 function Test-PromptLifecycle {
@@ -1831,7 +2168,8 @@ function Test-PromptLifecycle {
     AssertStatus 'start prompt exits 0' 0 $r.ExitCode
     AssertContains 'start prompt prints RUN_DIR' 'RUN_DIR=' $r.StdOut
 
-    $runDir = Get-RunDir $r.StdOut
+    $runDir = Get-RunDirOrFail 'start printed a usable RUN_DIR' $r.StdOut
+    if (-not $runDir) { Remove-Item -Recurse -Force -LiteralPath $sandbox -ErrorAction SilentlyContinue; return }
     AssertContains 'prompt is copied into the run directory' 'review this document' `
         (Get-Content -LiteralPath (Join-Path $runDir 'prompt') -Raw)
 
@@ -1839,6 +2177,13 @@ function Test-PromptLifecycle {
 
     AssertContains 'the prompt is fed to codex on stdin' 'review this document' `
         (Get-Content -LiteralPath (Join-Path $sandbox 'stdin') -Raw)
+
+    # Exact vector, not a substring: a flag drifting to the wrong position is
+    # precisely the defect class an earlier review already caught here.
+    $argv = @((Get-Content -LiteralPath (Join-Path $sandbox 'argv')) | Where-Object { $_ -ne '' })
+    $expectedArgv = @('exec', '-', '-s', 'read-only', '--skip-git-repo-check', '-o', (Join-Path $runDir 'result'))
+    AssertEquals 'prompt mode builds the exact argument vector' `
+        ($expectedArgv -join '|') ($argv -join '|')
     AssertEquals 'result holds the review body' 'fake review body' `
         (Get-Content -LiteralPath (Join-Path $runDir 'result') -Raw)
     AssertContains 'stdout captures the final message' 'fake codex final message' `
@@ -1856,7 +2201,7 @@ function Test-PromptLifecycle {
     if ($sentinel -match '^[0-9]+$') { Pass 'exit-code holds a bare integer' }
     else { Fail 'exit-code holds a bare integer' "got '$sentinel'" }
 
-    Remove-Item -Recurse -Force -LiteralPath $sandbox
+    Remove-Item -Recurse -Force -LiteralPath $sandbox -ErrorAction SilentlyContinue
 }
 
 function Test-NonZeroExit {
@@ -1864,11 +2209,12 @@ function Test-NonZeroExit {
     $promptFile = Join-Path $sandbox 'p.md'
     [System.IO.File]::WriteAllText($promptFile, 'x')
     $r = Invoke-Runner $sandbox @('start', 'prompt', (Join-Path $sandbox 'work'), $promptFile) @{ FAKE_CODEX_EXIT = '7' }
-    $runDir = Get-RunDir $r.StdOut
+    $runDir = Get-RunDirOrFail 'start printed a usable RUN_DIR' $r.StdOut
+    if (-not $runDir) { Remove-Item -Recurse -Force -LiteralPath $sandbox -ErrorAction SilentlyContinue; return }
     Wait-Sentinel $runDir | Out-Null
     AssertEquals 'non-zero reviewer exit is recorded' '7' `
         (Get-Content -LiteralPath (Join-Path $runDir 'exit-code') -Raw).Trim()
-    Remove-Item -Recurse -Force -LiteralPath $sandbox
+    Remove-Item -Recurse -Force -LiteralPath $sandbox -ErrorAction SilentlyContinue
 }
 
 function Test-ReviewScopes {
@@ -1882,7 +2228,8 @@ function Test-ReviewScopes {
         $r = Invoke-Runner $sandbox $runnerArgs
         AssertStatus ($case.Scope + ' scope starts') 0 $r.ExitCode
 
-        $runDir = Get-RunDir $r.StdOut
+        $runDir = Get-RunDirOrFail ($case.Scope + ' printed a usable RUN_DIR') $r.StdOut
+        if (-not $runDir) { Remove-Item -Recurse -Force -LiteralPath $sandbox -ErrorAction SilentlyContinue; continue }
         Wait-Sentinel $runDir | Out-Null
 
         # Assert on the argument vector the FAKE received, not on the runner's own
@@ -1892,7 +2239,7 @@ function Test-ReviewScopes {
                     @('--skip-git-repo-check', '-o', (Join-Path $runDir 'result'))
         AssertEquals ($case.Scope + ' builds the exact argument vector') `
             ($expected -join '|') ($argv -join '|')
-        Remove-Item -Recurse -Force -LiteralPath $sandbox
+        Remove-Item -Recurse -Force -LiteralPath $sandbox -ErrorAction SilentlyContinue
     }
 }
 
@@ -1903,13 +2250,14 @@ function Test-ScopeValidation {
     AssertStatus 'base requires a scope value' 64 (Invoke-Runner $sandbox @('start','review',$work,'base')).ExitCode
     AssertStatus 'commit requires a scope value' 64 (Invoke-Runner $sandbox @('start','review',$work,'commit')).ExitCode
     AssertStatus 'unknown scope kind exits 64' 64 (Invoke-Runner $sandbox @('start','review',$work,'nonsense')).ExitCode
-    Remove-Item -Recurse -Force -LiteralPath $sandbox
+    Remove-Item -Recurse -Force -LiteralPath $sandbox -ErrorAction SilentlyContinue
 }
 
 function Test-StatusAndWait {
     $sandbox = New-Sandbox
-    $r = Invoke-Runner $sandbox @('start','review',(Join-Path $sandbox 'work'),'uncommitted') @{ FAKE_CODEX_SLEEP = '8' }
-    $runDir = Get-RunDir $r.StdOut
+    $r = Invoke-Runner $sandbox @('start','review',(Join-Path $sandbox 'work'),'uncommitted') @{ FAKE_CODEX_SLEEP = '12' }
+    $runDir = Get-RunDirOrFail 'start printed a usable RUN_DIR' $r.StdOut
+    if (-not $runDir) { Remove-Item -Recurse -Force -LiteralPath $sandbox -ErrorAction SilentlyContinue; return }
 
     $s = Invoke-Runner $sandbox @('status', $runDir)
     AssertStatus 'status of an unfinished run exits 3' 3 $s.ExitCode
@@ -1917,20 +2265,21 @@ function Test-StatusAndWait {
 
     AssertStatus 'wait exits 3 when it times out' 3 (Invoke-Runner $sandbox @('wait', $runDir, '2')).ExitCode
 
-    $w = Invoke-Runner $sandbox @('wait', $runDir, '40')
+    $w = Invoke-Runner $sandbox @('wait', $runDir, '60')
     AssertStatus 'wait exits 0 once the run finishes' 0 $w.ExitCode
     AssertContains 'wait reports done' 'STATE=done' $w.StdOut
 
     AssertStatus 'wait rejects a non-numeric timeout' 64 (Invoke-Runner $sandbox @('wait', $runDir, 'soon')).ExitCode
     AssertStatus 'status of a missing run directory exits 65' 65 `
         (Invoke-Runner $sandbox @('status', (Join-Path $sandbox 'not-a-run'))).ExitCode
-    Remove-Item -Recurse -Force -LiteralPath $sandbox
+    Remove-Item -Recurse -Force -LiteralPath $sandbox -ErrorAction SilentlyContinue
 }
 
 function Test-Discard {
     $sandbox = New-Sandbox
-    $r = Invoke-Runner $sandbox @('start','review',(Join-Path $sandbox 'work'),'uncommitted') @{ FAKE_CODEX_SLEEP = '8' }
-    $runDir = Get-RunDir $r.StdOut
+    $r = Invoke-Runner $sandbox @('start','review',(Join-Path $sandbox 'work'),'uncommitted') @{ FAKE_CODEX_SLEEP = '12' }
+    $runDir = Get-RunDirOrFail 'start printed a usable RUN_DIR' $r.StdOut
+    if (-not $runDir) { Remove-Item -Recurse -Force -LiteralPath $sandbox -ErrorAction SilentlyContinue; return }
 
     AssertStatus 'discard of an unfinished run exits 66' 66 (Invoke-Runner $sandbox @('discard', $runDir)).ExitCode
     if (Test-Path -LiteralPath $runDir) { Pass 'a refused discard leaves the run intact' }
@@ -1941,13 +2290,14 @@ function Test-Discard {
     AssertContains 'discard reports its state' 'STATE=discarded' $d.StdOut
     if (Test-Path -LiteralPath $runDir) { Fail 'forced discard removes the run' 'directory survived' }
     else { Pass 'forced discard removes the run' }
-    Remove-Item -Recurse -Force -LiteralPath $sandbox
+    Remove-Item -Recurse -Force -LiteralPath $sandbox -ErrorAction SilentlyContinue
 }
 
 function Test-DiscardRejectsTraversal {
     $sandbox = New-Sandbox
     $r = Invoke-Runner $sandbox @('start','review',(Join-Path $sandbox 'work'),'uncommitted')
-    $runDir = Get-RunDir $r.StdOut
+    $runDir = Get-RunDirOrFail 'start printed a usable RUN_DIR' $r.StdOut
+    if (-not $runDir) { Remove-Item -Recurse -Force -LiteralPath $sandbox -ErrorAction SilentlyContinue; return }
     Wait-Sentinel $runDir | Out-Null
 
     $victim = Join-Path (Join-Path $sandbox 'tmp') 'victim'
@@ -1964,17 +2314,404 @@ function Test-DiscardRejectsTraversal {
 
     AssertStatus 'discard rejects a directory outside the runs root' 65 `
         (Invoke-Runner $sandbox @('discard', $victim)).ExitCode
-    Remove-Item -Recurse -Force -LiteralPath $sandbox
+    Remove-Item -Recurse -Force -LiteralPath $sandbox -ErrorAction SilentlyContinue
+}
+
+function Test-MissingCodex {
+    # PATH holding only a pwsh symlink, so `codex` genuinely cannot be resolved.
+    $sandbox = New-Sandbox
+    $bare = Join-Path $sandbox 'bare'
+    New-Item -ItemType Directory -Path $bare | Out-Null
+    $psExe = (Get-Process -Id $PID).Path
+    if (-not (Test-OnWindowsHost)) { & ln -s $psExe (Join-Path $bare 'pwsh') }
+
+    $savedPath = $env:PATH
+    $savedTemp = $env:TEMP
+    $savedTmp = $env:TMPDIR
+    $savedTmpWin = $env:TMP
+    $env:PATH = $bare
+    $env:TEMP = Join-Path $sandbox 'tmp'
+    $env:TMPDIR = Join-Path $sandbox 'tmp'
+    $env:TMP = Join-Path $sandbox 'tmp'
+    $outFile = Join-Path $sandbox 'mc-out.txt'
+    $errFile = Join-Path $sandbox 'mc-err.txt'
+    $proc = Start-Process -FilePath $psExe `
+        -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $Runner, 'start', 'review', (Join-Path $sandbox 'work'), 'uncommitted') `
+        -NoNewWindow -PassThru -RedirectStandardOutput $outFile -RedirectStandardError $errFile
+    $proc.WaitForExit()
+    $env:PATH = $savedPath; $env:TEMP = $savedTemp; $env:TMPDIR = $savedTmp; $env:TMP = $savedTmpWin
+
+    AssertStatus 'missing codex exits 127' 127 $proc.ExitCode
+    AssertContains 'missing codex explains itself' 'not on PATH' `
+        (Get-Content -LiteralPath $errFile -Raw -ErrorAction SilentlyContinue)
+    Remove-Item -Recurse -Force -LiteralPath $sandbox -ErrorAction SilentlyContinue
+}
+
+function Test-HelpAndPollInterval {
+    $sandbox = New-Sandbox
+    foreach ($flag in @('-h', '--help')) {
+        $r = Invoke-Runner $sandbox @($flag)
+        AssertStatus "$flag exits 0" 0 $r.ExitCode
+        AssertContains "$flag prints usage on stdout" 'invoke-codex.ps1 start prompt' $r.StdOut
+        AssertEquals "$flag writes nothing to stderr" '' "$($r.StdErr)".Trim()
+    }
+    # Emptiness is asserted through string interpolation, never a [string] cast.
+    # Get-Content -Raw on an EMPTY file returns AutomationNull; casting that to
+    # [string] stays null, so .Trim() throws and the assertion is skipped WITHOUT
+    # being counted — the suite then reports fewer assertions and stays green.
+    $r = Invoke-Runner $sandbox @('nonsense')
+    AssertContains 'a usage error goes to stderr' 'invoke-codex.ps1 start prompt' $r.StdErr
+    AssertEquals 'a usage error writes nothing to stdout' '' "$($r.StdOut)".Trim()
+
+    Remove-Item -Recurse -Force -LiteralPath $sandbox -ErrorAction SilentlyContinue
+}
+
+function Test-PollIntervalValidation {
+    # The poll interval feeds one loop, in `wait`, and is validated there and
+    # nowhere else. Validating it at script scope instead would fail every OTHER
+    # subcommand too — answering `discard` with a complaint about a poll interval
+    # — so each of these cases is asserted twice: rejected by `wait`, ignored by
+    # the subcommands that never read it.
+    $sandbox = New-Sandbox
+    $r = Invoke-Runner $sandbox @('start', 'review', (Join-Path $sandbox 'work'), 'uncommitted')
+    $runDir = Get-RunDirOrFail 'poll-interval start printed a usable RUN_DIR' $r.StdOut
+    if (-not $runDir) { Remove-Item -Recurse -Force -LiteralPath $sandbox -ErrorAction SilentlyContinue; return }
+    Wait-Sentinel $runDir | Out-Null
+
+    foreach ($bad in @('0', 'soon', '2x')) {
+        AssertStatus "wait rejects poll interval '$bad'" 64 `
+            (Invoke-Runner $sandbox @('wait', $runDir, '4') @{ SUPERARTES_CODEX_POLL_INTERVAL = $bad }).ExitCode
+        AssertStatus "status ignores poll interval '$bad'" 0 `
+            (Invoke-Runner $sandbox @('status', $runDir) @{ SUPERARTES_CODEX_POLL_INTERVAL = $bad }).ExitCode
+    }
+
+    # Leading zeros are accepted, because the shell sibling accepts them.
+    AssertStatus 'wait accepts a leading-zero poll interval' 0 `
+        (Invoke-Runner $sandbox @('wait', $runDir, '4') @{ SUPERARTES_CODEX_POLL_INTERVAL = '02' }).ExitCode
+    Remove-Item -Recurse -Force -LiteralPath $sandbox -ErrorAction SilentlyContinue
+}
+
+function Test-MalformedAndForeignRunDirs {
+    $sandbox = New-Sandbox
+    $runsRoot = Join-Path (Join-Path $sandbox 'tmp') 'superartes-codex-runs'
+    New-Item -ItemType Directory -Path $runsRoot -Force | Out-Null
+
+    # Exists, but carries none of the marker files this runner writes.
+    $malformed = Join-Path $runsRoot 'run.malformed'
+    New-Item -ItemType Directory -Path $malformed | Out-Null
+    AssertStatus 'status of a malformed run directory exits 65' 65 (Invoke-Runner $sandbox @('status', $malformed)).ExitCode
+    AssertStatus 'discard of a malformed run directory exits 65' 65 (Invoke-Runner $sandbox @('discard', $malformed)).ExitCode
+
+    # started-at but no mode — the shape a start killed between those two writes
+    # leaves behind. BOTH markers are required before discard will rm -rf, so this
+    # must be refused rather than deleted.
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    $halfWritten = Join-Path $runsRoot 'run.halfwritten'
+    New-Item -ItemType Directory -Path $halfWritten | Out-Null
+    [System.IO.File]::WriteAllText((Join-Path $halfWritten 'started-at'), "0`n", $utf8NoBom)
+    AssertStatus 'status of a run directory without mode exits 65' 65 (Invoke-Runner $sandbox @('status', $halfWritten)).ExitCode
+    $d = Invoke-Runner $sandbox @('discard', $halfWritten, '--force')
+    AssertStatus 'discard of a run directory without mode exits 65' 65 $d.ExitCode
+    AssertContains 'the malformed message names both markers' 'missing started-at or mode' $d.StdErr
+    if (Test-Path -LiteralPath $halfWritten) { Pass 'a half-written run directory survives discard' }
+    else { Fail 'a half-written run directory survives discard' 'it was removed' }
+
+    # A direct child of the runs root that this runner did not create.
+    $foreign = Join-Path $runsRoot 'somebody-elses-data'
+    New-Item -ItemType Directory -Path $foreign | Out-Null
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    foreach ($f in @(@('started-at', '0'), @('mode', 'review'), @('exit-code', '0'))) {
+        [System.IO.File]::WriteAllText((Join-Path $foreign $f[0]), $f[1] + "`n", $utf8NoBom)
+    }
+    AssertStatus 'discard refuses a foreign directory in the runs root' 65 (Invoke-Runner $sandbox @('discard', $foreign)).ExitCode
+    if (Test-Path -LiteralPath $foreign) { Pass 'the foreign directory survives' }
+    else { Fail 'the foreign directory survives' 'it was removed' }
+    Remove-Item -Recurse -Force -LiteralPath $sandbox -ErrorAction SilentlyContinue
+}
+
+function Test-DiscardAcrossTempDirs {
+    # Every subcommand is a separate process for an agent, so discard must not
+    # depend on the ambient TEMP matching the one start used.
+    $sandbox = New-Sandbox
+    $r = Invoke-Runner $sandbox @('start', 'review', (Join-Path $sandbox 'work'), 'uncommitted')
+    $runDir = Get-RunDirOrFail 'cross-TEMP start printed a usable RUN_DIR' $r.StdOut
+    if (-not $runDir) { Remove-Item -Recurse -Force -LiteralPath $sandbox -ErrorAction SilentlyContinue; return }
+    Wait-Sentinel $runDir | Out-Null
+
+    $elsewhere = Join-Path $sandbox 'elsewhere'
+    New-Item -ItemType Directory -Path $elsewhere | Out-Null
+    # TMP as well, or on Windows this "different TEMP" is not different at all:
+    # GetTempPath reads TMP first, so the runner would keep using the same
+    # directory and the test would pass without ever crossing a temp boundary.
+    $d = Invoke-Runner $sandbox @('discard', $runDir) @{ TEMP = $elsewhere; TMPDIR = $elsewhere; TMP = $elsewhere }
+    AssertStatus 'discard works from a different TEMP' 0 $d.ExitCode
+    if (Test-Path -LiteralPath $runDir) { Fail 'cross-TEMP discard removes the run' 'directory survived' }
+    else { Pass 'cross-TEMP discard removes the run' }
+    Remove-Item -Recurse -Force -LiteralPath $sandbox -ErrorAction SilentlyContinue
+}
+
+function Test-ForcePosition {
+    # A short sleep, not a long one: the fake reviewer keeps its working directory
+    # INSIDE the sandbox, and on Windows a directory cannot be removed while it is
+    # some process's current directory. Long enough that the run is still
+    # unfinished when discard runs, short enough to be over before teardown.
+    $sandbox = New-Sandbox
+    foreach ($order in @('after', 'before')) {
+        $r = Invoke-Runner $sandbox @('start', 'review', (Join-Path $sandbox 'work'), 'uncommitted') @{ FAKE_CODEX_SLEEP = '2' }
+        $runDir = Get-RunDirOrFail "$order-form start printed a usable RUN_DIR" $r.StdOut
+        if (-not $runDir) { continue }
+        if ($order -eq 'after') { $d = Invoke-Runner $sandbox @('discard', $runDir, '--force') }
+        else { $d = Invoke-Runner $sandbox @('discard', '--force', $runDir) }
+        AssertStatus "--force $order the run directory works" 0 $d.ExitCode
+        # Exit 0 alone would also be reported by a discard that removed nothing.
+        if (Test-Path -LiteralPath $runDir) { Fail "--force $order removes the run" 'directory survived' }
+        else { Pass "--force $order removes the run" }
+    }
+    Start-Sleep -Seconds 3
+    Remove-Item -Recurse -Force -LiteralPath $sandbox -ErrorAction SilentlyContinue
+}
+
+function Test-WorkerErrIsClean {
+    # worker-err is written by the WORKER ITSELF, and only when something has gone
+    # wrong. It is not fed by any stream redirect: the parent's redirects (to
+    # worker-log and worker-stderr) exist solely to detach the worker from the
+    # caller's console, and cannot carry anything, because Start-Process pumps a
+    # redirected stream through the parent and the parent exits immediately.
+    # A healthy run must therefore leave worker-err empty or absent, or
+    # LAUNCH_ERROR would fire spuriously on every review.
+    $sandbox = New-Sandbox
+    $r = Invoke-Runner $sandbox @('start', 'review', (Join-Path $sandbox 'work'), 'uncommitted')
+    $runDir = Get-RunDirOrFail 'worker-err check printed a usable RUN_DIR' $r.StdOut
+    if (-not $runDir) { Remove-Item -Recurse -Force -LiteralPath $sandbox -ErrorAction SilentlyContinue; return }
+    Wait-Sentinel $runDir | Out-Null
+
+    $workerErr = Join-Path $runDir 'worker-err'
+    $size = 0
+    if (Test-Path -LiteralPath $workerErr -PathType Leaf) { $size = (Get-Item -LiteralPath $workerErr).Length }
+    AssertEquals 'a healthy run leaves worker-err empty' '0' ([string] $size)
+    Remove-Item -Recurse -Force -LiteralPath $sandbox -ErrorAction SilentlyContinue
+}
+
+function Test-WorkerFailureIsSurfaced {
+    # A worker that dies must not look like a reviewer still working.
+    #
+    # worker-err exists for exactly one reason: without it, a worker that failed
+    # and a worker that is busy are indistinguishable, and the controller waits
+    # forever. So the failure here is made to happen FOR REAL, rather than by
+    # hand-writing worker-err — which would only test how status formats a file
+    # the test itself created.
+    #
+    # The shell sibling forces its equivalent with a failing setsid shim on PATH.
+    # There is no PowerShell analogue: the worker's interpreter is resolved to an
+    # absolute path, so no PATH entry can intercept it. Instead the worker is made
+    # to fail at the write it exists to perform — the sentinel — by putting a
+    # DIRECTORY where exit-code.tmp must go while the fake reviewer is still
+    # sleeping. The write throws, and the worker's own try/catch is what records
+    # the reason: it calls Write-WorkerError, which WRITES worker-err directly.
+    #
+    # Nothing about this arrives through the parent's stream redirection, which
+    # carries nothing at all once the parent has exited. That is precisely why the
+    # worker's wrap exists, and why deleting it as redundant would restore the
+    # silent-hang state this test was written to prevent: no sentinel, no
+    # explanation, and a controller waiting forever.
+    $sandbox = New-Sandbox
+    $r = Invoke-Runner $sandbox @('start', 'review', (Join-Path $sandbox 'work'), 'uncommitted') @{ FAKE_CODEX_SLEEP = '3' }
+    $runDir = Get-RunDirOrFail 'worker-failure start printed a usable RUN_DIR' $r.StdOut
+    if (-not $runDir) { Remove-Item -Recurse -Force -LiteralPath $sandbox -ErrorAction SilentlyContinue; return }
+    New-Item -ItemType Directory -Path (Join-Path $runDir 'exit-code.tmp') | Out-Null
+
+    # A bounded ceiling well past the fake's sleep: the sentinel must never
+    # arrive at all, not merely be late.
+    if (Wait-Sentinel $runDir 90) {
+        Fail 'a failed worker never records completion' 'exit-code appeared anyway'
+    }
+    else { Pass 'a failed worker never records completion' }
+
+    $workerErr = Join-Path $runDir 'worker-err'
+    $size = 0
+    if (Test-Path -LiteralPath $workerErr -PathType Leaf) { $size = (Get-Item -LiteralPath $workerErr).Length }
+    if ($size -gt 0) { Pass 'the worker records its own failure in worker-err' }
+    else { Fail 'the worker records its own failure in worker-err' 'worker-err is empty' }
+
+    # And the parent's redirect target stays empty, as the pump argument predicts.
+    $workerStderr = Join-Path $runDir 'worker-stderr'
+    $redirectSize = 0
+    if (Test-Path -LiteralPath $workerStderr -PathType Leaf) { $redirectSize = (Get-Item -LiteralPath $workerStderr).Length }
+    AssertEquals 'the parent redirect target carries nothing' '0' ([string] $redirectSize)
+
+    $s = Invoke-Runner $sandbox @('status', $runDir)
+    AssertStatus 'status of a failed worker exits 3' 3 $s.ExitCode
+    AssertContains 'status surfaces the worker error' 'LAUNCH_ERROR=' $s.StdOut
+    AssertContains 'a failed run is not called running' 'STATE=not-recorded' $s.StdOut
+    Remove-Item -Recurse -Force -LiteralPath $sandbox -ErrorAction SilentlyContinue
+}
+
+function Test-StatusReportsProvenance {
+    $sandbox = New-Sandbox
+    $r = Invoke-Runner $sandbox @('start', 'review', (Join-Path $sandbox 'work'), 'uncommitted')
+    $runDir = Get-RunDirOrFail 'provenance check printed a usable RUN_DIR' $r.StdOut
+    if (-not $runDir) { Remove-Item -Recurse -Force -LiteralPath $sandbox -ErrorAction SilentlyContinue; return }
+    Wait-Sentinel $runDir | Out-Null
+    $s = Invoke-Runner $sandbox @('status', $runDir)
+    AssertContains 'status names the working tree' 'WORK_DIR=' $s.StdOut
+    AssertContains 'status names the command it ran' 'CMD=' $s.StdOut
+
+    # One parser must read both runners, so the KEY SEQUENCE is part of the
+    # contract rather than an implementation detail. This is the shell sibling's.
+    $keys = @()
+    foreach ($line in ($s.StdOut -split "`n")) {
+        if ($line.Trim() -match '^([A-Z_]+)=') { $keys += $Matches[1] }
+    }
+    $expected = @('RUN_DIR', 'MODE', 'WORK_DIR', 'CMD', 'ELAPSED_SECONDS', 'RESULT',
+                  'STDOUT_LOG', 'STDERR_LOG', 'STATE', 'EXIT_CODE', 'RESULT_BYTES')
+    AssertEquals 'status prints the sibling field order' ($expected -join '|') ($keys -join '|')
+    Remove-Item -Recurse -Force -LiteralPath $sandbox -ErrorAction SilentlyContinue
+}
+
+function Test-RecoveredRunReportsEmptyMetadata {
+    # A run directory found again after the fact may hold only its markers. The
+    # shell sibling still prints WORK_DIR and CMD, empty, because a controller
+    # parses a fixed field list; printing them conditionally would make an
+    # incomplete run parse as a different shape of record.
+    $sandbox = New-Sandbox
+    $runsRoot = Join-Path (Join-Path $sandbox 'tmp') 'superartes-codex-runs'
+    New-Item -ItemType Directory -Path $runsRoot -Force | Out-Null
+    $partial = Join-Path $runsRoot 'run.partial'
+    New-Item -ItemType Directory -Path $partial | Out-Null
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText((Join-Path $partial 'started-at'), "0`n", $utf8NoBom)
+    [System.IO.File]::WriteAllText((Join-Path $partial 'mode'), "review`n", $utf8NoBom)
+
+    $s = Invoke-Runner $sandbox @('status', $partial)
+    AssertStatus 'status of a bare run directory exits 3' 3 $s.ExitCode
+    AssertContains 'WORK_DIR is printed even when unrecorded' 'WORK_DIR=' $s.StdOut
+    AssertContains 'CMD is printed even when unrecorded' 'CMD=' $s.StdOut
+    AssertContains 'a bare run directory is not called running' 'STATE=not-recorded' $s.StdOut
+    Remove-Item -Recurse -Force -LiteralPath $sandbox -ErrorAction SilentlyContinue
+}
+
+function Test-RunDirectoryContract {
+    # The two run-directory files that exist only because the worker is a
+    # separately launched process, and both of which have already been a Critical
+    # defect: null-stdin (a real file, because Start-Process pre-validates every
+    # redirect path with File.Exists and \\.\NUL is not a file) and codex-path
+    # (the resolved program, because the worker's redirects rule out PATHEXT).
+    $sandbox = New-Sandbox
+    $r = Invoke-Runner $sandbox @('start', 'review', (Join-Path $sandbox 'work'), 'uncommitted')
+    $runDir = Get-RunDirOrFail 'run-contract start printed a usable RUN_DIR' $r.StdOut
+    if (-not $runDir) { Remove-Item -Recurse -Force -LiteralPath $sandbox -ErrorAction SilentlyContinue; return }
+    Wait-Sentinel $runDir | Out-Null
+
+    $nullStdin = Join-Path $runDir 'null-stdin'
+    if (Test-Path -LiteralPath $nullStdin -PathType Leaf) { Pass 'a null stdin file is created in the run directory' }
+    else { Fail 'a null stdin file is created in the run directory' "not found: $nullStdin" }
+    AssertEquals 'the null stdin file is empty' '0' ([string] (Get-Item -LiteralPath $nullStdin).Length)
+    AssertEquals 'review mode records the null stdin file as its stdin' $nullStdin `
+        "$(Get-Content -LiteralPath (Join-Path $runDir 'stdin') -Raw)".Trim()
+    # Trimmed, not compared raw: PowerShell pumps a redirected stdin file into the
+    # child and terminates it with a newline, so an empty file arrives as "`n"
+    # where the shell sibling's /dev/null arrives as nothing at all. What matters
+    # is that no CONTENT reaches the reviewer.
+    AssertEquals 'the reviewer receives no stdin content in review mode' '' `
+        "$(Get-Content -LiteralPath (Join-Path $sandbox 'stdin') -Raw)".Trim()
+
+    # The fake is reached through codex.cmd on Windows and a bash shim elsewhere;
+    # either way the recorded path must be the resolved program, not a bare name.
+    $shimName = 'codex'
+    if (Test-OnWindowsHost) { $shimName = 'codex.cmd' }
+    AssertEquals 'the resolved codex program is recorded for the worker' `
+        (Join-Path (Join-Path $sandbox 'bin') $shimName) `
+        "$(Get-Content -LiteralPath (Join-Path $runDir 'codex-path') -Raw)".Trim()
+    Remove-Item -Recurse -Force -LiteralPath $sandbox -ErrorAction SilentlyContinue
+}
+
+function Test-SymlinkedWorkDirIsResolved {
+    # A symlinked checkout must be recorded as the path it points AT, the way the
+    # shell sibling's `cd && pwd -P` records it. Resolve-Path alone normalises but
+    # does not resolve, so this silently regresses to the link path if anyone
+    # simplifies Resolve-PhysicalPath away.
+    #
+    # Asserted by comparing two runs rather than against a path this test computes
+    # itself: the temp directory may sit behind a link of its own on some hosts,
+    # and self-consistency between the two forms is the property that matters.
+    $sandbox = New-Sandbox
+    $work = Join-Path $sandbox 'work'
+    $link = Join-Path $sandbox 'work-link'
+
+    $linked = $true
+    try {
+        if (Test-OnWindowsHost) { New-Item -ItemType SymbolicLink -Path $link -Target $work -ErrorAction Stop | Out-Null }
+        else { & ln -s $work $link; if ($LASTEXITCODE -ne 0) { $linked = $false } }
+    }
+    catch { $linked = $false }
+
+    if (-not $linked) {
+        # Creating a symbolic link on Windows needs Developer Mode or elevation.
+        # Announced rather than silently passed: a skipped check must never look
+        # like a satisfied one.
+        Write-Host 'SKIP: symlinked work directory (cannot create a symbolic link on this host)'
+        Remove-Item -Recurse -Force -LiteralPath $sandbox -ErrorAction SilentlyContinue
+        return
+    }
+
+    $direct = Invoke-Runner $sandbox @('start', 'review', $work, 'uncommitted')
+    $directDir = Get-RunDirOrFail 'direct work directory starts' $direct.StdOut
+    $viaLink = Invoke-Runner $sandbox @('start', 'review', $link, 'uncommitted')
+    $linkDir = Get-RunDirOrFail 'symlinked work directory starts' $viaLink.StdOut
+    if ((-not $directDir) -or (-not $linkDir)) {
+        Remove-Item -Recurse -Force -LiteralPath $sandbox -ErrorAction SilentlyContinue
+        return
+    }
+    Wait-Sentinel $directDir | Out-Null
+    Wait-Sentinel $linkDir | Out-Null
+
+    $recordedDirect = "$(Get-Content -LiteralPath (Join-Path $directDir 'work-dir') -Raw)".Trim()
+    $recordedLink = "$(Get-Content -LiteralPath (Join-Path $linkDir 'work-dir') -Raw)".Trim()
+    AssertEquals 'a symlinked work directory records the physical path' $recordedDirect $recordedLink
+    AssertAbsent 'the recorded work directory is not the link' 'work-link' $recordedLink
+    Remove-Item -Recurse -Force -LiteralPath $sandbox -ErrorAction SilentlyContinue
+}
+
+function Test-PromptModeStdin {
+    # Prompt mode feeds codex the copied prompt, not the null stdin — the run
+    # directory has both files and they must not be confused.
+    $sandbox = New-Sandbox
+    $promptFile = Join-Path $sandbox 'p.md'
+    [System.IO.File]::WriteAllText($promptFile, 'prompt body')
+    $r = Invoke-Runner $sandbox @('start', 'prompt', (Join-Path $sandbox 'work'), $promptFile)
+    $runDir = Get-RunDirOrFail 'prompt-stdin start printed a usable RUN_DIR' $r.StdOut
+    if (-not $runDir) { Remove-Item -Recurse -Force -LiteralPath $sandbox -ErrorAction SilentlyContinue; return }
+    Wait-Sentinel $runDir | Out-Null
+    AssertEquals 'prompt mode records the prompt as its stdin' (Join-Path $runDir 'prompt') `
+        "$(Get-Content -LiteralPath (Join-Path $runDir 'stdin') -Raw)".Trim()
+    if (Test-Path -LiteralPath (Join-Path $runDir 'null-stdin') -PathType Leaf) {
+        Pass 'prompt mode still creates a null stdin for the worker'
+    }
+    else { Fail 'prompt mode still creates a null stdin for the worker' 'null-stdin not found' }
+    Remove-Item -Recurse -Force -LiteralPath $sandbox -ErrorAction SilentlyContinue
 }
 
 Test-Usage
+Test-MissingCodex
+Test-HelpAndPollInterval
+Test-PollIntervalValidation
 Test-PromptLifecycle
+Test-PromptModeStdin
+Test-SymlinkedWorkDirIsResolved
+Test-RunDirectoryContract
 Test-NonZeroExit
 Test-ReviewScopes
 Test-ScopeValidation
 Test-StatusAndWait
 Test-Discard
 Test-DiscardRejectsTraversal
+Test-MalformedAndForeignRunDirs
+Test-DiscardAcrossTempDirs
+Test-ForcePosition
+Test-WorkerErrIsClean
+Test-WorkerFailureIsSurfaced
+Test-StatusReportsProvenance
+Test-RecoveredRunReportsEmptyMetadata
 
 Write-Host ""
 Write-Host "$($script:Passed) passed, $($script:Failed) failed"
@@ -1986,7 +2723,9 @@ exit 0
 
 Run: `pwsh -NoProfile -File tests/external-review/Test-InvokeCodex.ps1`
 
-Expected: every line begins `PASS:`, final line `NN passed, 0 failed`, exit 0.
+Expected: every line begins `PASS:`, final line `117 passed, 0 failed`, exit 0, and
+**no `InvalidOperation` lines** — three assertions compare a stream against the empty
+string, and a `[string]` cast there throws on `AutomationNull` and silently skips them.
 
 If a test fails inside the detached worker, read `err-log` in the surviving run
 directory under `$TMPDIR/superartes-codex-runs/` — the hidden process writes its

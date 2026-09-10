@@ -10,6 +10,15 @@ set -u
 ROOT_DIR=$(cd "$(dirname "$0")/../.." && pwd)
 RUNNER="$ROOT_DIR/skills/external-review/invoke-codex.sh"
 
+# Fail loudly if the runner is missing, instead of letting the harness supply
+# the exit codes the assertions expect. `bash <missing-script>` exits 127, which
+# is exactly what the missing-codex test expects — so without this guard a
+# suite pointed at nothing reports assertions as PASSED for the wrong reason.
+if [ ! -f "$RUNNER" ]; then
+    printf 'FATAL: runner not found: %s\n' "$RUNNER" >&2
+    exit 1
+fi
+
 passed=0
 failed=0
 
