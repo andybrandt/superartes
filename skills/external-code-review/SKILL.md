@@ -15,8 +15,10 @@ Obtain an integrated code-change review from a different model family and harnes
 
 ## Scope
 
-Choose one scope. Its kind and value are two separate adapter arguments, and two
-separate fields of the review key — never a single `kind|value` string.
+Choose one scope. Its kind and value are always two separate arguments — two
+positional arguments to the runner under a Claude Code controller, two separate
+fields of the review key under a Codex controller — never a single `kind|value`
+string.
 
 | Situation | Scope kind | Scope value |
 |-----------|------------|-------------|
@@ -42,7 +44,7 @@ git cat-file -e "<sha>^{commit}" 2>/dev/null || echo "COMMIT NOT FOUND"
 
 ## Reviewer selection
 
-| Controller | Independent profile |
+| Controller | Independent review mode |
 |------------|---------------------|
 | Claude Code / Anthropic | `codex-review` |
 | Codex / OpenAI | `claude-prompt` |
@@ -52,22 +54,52 @@ Determine host from runtime identity, never executable availability. A same-mode
 
 ## Invocation
 
-Read `invoking-reviewers.md` from the sibling `external-review` skill's absolute source directory; never resolve it relative to the user's project. Use a stable code review key containing canonical repository and scope.
-
-`codex-review` runs Codex's own `codex exec review` subcommand with the native
+`codex-review` names Codex's own `codex exec review` subcommand with the native
 scope flag, so compose no prompt for it. Claude receives an explicit review-only
 prompt with equivalent Git commands and must report inspection evidence: commands
 used and relevant files inspected.
 
-The managed lifecycle is shared with `superartes:external-review` — follow its
-Invocation and Completion sections for key construction, recording `RUN_DIR` as a
-literal path across shell calls, bounded `wait` sizing, the fifteen-minute
-checkpoint and its cancellation sequence, and the retry preconditions. Never
-treat a live process or an empty live result as failure, and never retry
-`indeterminate` immediately.
+### Claude Code controller
 
-On native Windows, Claude Code has no OS-level sandbox. Safe mode, `dontAsk`, the restricted PowerShell Git allow-list, and the review-only prompt are primary safeguards; state this limitation when selecting `claude-prompt`.
+Run the background runner from the `external-review` skill's source directory,
+passing the scope kind and its value as two separate arguments. Record the printed
+`RUN_DIR` as a literal path in your own reply — a shell variable is empty by your
+next call.
+
+```bash
+"$DIR/invoke-codex.sh" start review "$REPO_DIR" uncommitted
+"$DIR/invoke-codex.sh" start review "$REPO_DIR" base "$TRUNK"
+"$DIR/invoke-codex.sh" start review "$REPO_DIR" commit "$SHA"
+"$DIR/invoke-codex.sh" wait    "<the literal RUN_DIR>" 540
+"$DIR/invoke-codex.sh" status  "<the literal RUN_DIR>"
+"$DIR/invoke-codex.sh" discard "<the literal RUN_DIR>"
+```
+
+Pick ONE `start` line. Every `$NAME` is a placeholder to substitute — `$DIR` the
+resolved `external-review` skill directory, `$REPO_DIR` the repository, `$TRUNK` the
+detected trunk branch, `$SHA` the validated commit. Only `RUN_DIR` is a literal you
+paste back. `status` reports without waiting, and `wait` ends by printing the same
+block; take every artifact path from it rather than assembling paths yourself.
+
+Resolve `$DIR` from the sibling skill's absolute source directory as reported by your
+skill loader; never resolve it relative to the user's project.
+
+Follow `superartes:external-review`'s Invocation and Completion sections for `wait`
+sizing, exit 3 meaning completion-not-recorded rather than failure, the
+fifteen-minute checkpoint, what exit 127 means, `discard` semantics, the retry
+preconditions, and the rule that both `$DIR` and `RUN_DIR` must be written as absolute
+literals because no shell variable survives to your next call. Never treat a live run
+as a failure.
+
+Native Windows uses `invoke-codex.ps1` with the same subcommands.
+
+### Codex controller
+
+Read `invoking-reviewers.md` from the sibling `external-review` skill's absolute source directory; never resolve it relative to the user's project. Use a stable code review key containing canonical repository and scope, then follow the managed lifecycle. Never treat a live process or an empty live result as failure, and never retry `indeterminate` immediately. That adapter is POSIX-only; a Codex controller on native Windows has no supported independent reviewer.
 
 ## Completion and triage
 
-Inspect all terminal evidence before fallback. No Git/diff evidence means a Claude response is not a substantive code review. Hand valid findings to `superartes:receiving-code-review`, then report Applied / Deferred / Pushed back.
+Inspect all terminal evidence before fallback. The degraded fallback for a code review
+is `superartes:requesting-code-review` — a same-model reviewer of the same changes.
+`superartes:external-review`'s document templates do not apply here; a diff is not a
+document. Label it degraded, never independent. No Git/diff evidence means a Claude response is not a substantive code review. Hand valid findings to `superartes:receiving-code-review`, then report Applied / Deferred / Pushed back.

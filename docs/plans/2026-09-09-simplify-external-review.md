@@ -2793,6 +2793,12 @@ reported, never a path resolved against the user's project. Under Claude Code,
 `${CLAUDE_PLUGIN_ROOT}/skills/external-review` is the preferred root when
 available. Quote every resolved path.
 
+`codex-prompt` names the document-review mode: a composed prompt fed to `codex exec`
+on stdin, with the repository readable but not writable. A Claude Code controller
+runs that mode through the background runner's `start prompt`; a Codex controller
+runs it as the managed adapter's profile of the same name. The Reviewer selection
+table above names the mode, not the mechanism.
+
 ### Claude Code controller
 
 Write the composed prompt to a unique temporary file, then run the background
@@ -2803,8 +2809,20 @@ literal path in your own reply** and paste that literal into every later call.
 ```bash
 "$DIR/invoke-codex.sh" start prompt "$WORK_DIR" "$PROMPT_FILE"   # prints RUN_DIR=...
 "$DIR/invoke-codex.sh" wait    "<the literal RUN_DIR>" 540
+"$DIR/invoke-codex.sh" status  "<the literal RUN_DIR>"
 "$DIR/invoke-codex.sh" discard "<the literal RUN_DIR>"
 ```
+
+Every `$NAME` above is a placeholder for you to substitute: `$DIR` is the resolved
+skill directory, `$WORK_DIR` the directory the reviewer should read, `$PROMPT_FILE`
+your temporary prompt. Only `RUN_DIR` is written as a literal you paste back.
+
+`status` reports on a run without waiting, and `wait` ends by printing exactly the
+same block. That block is where every artifact path comes from — `RESULT=`,
+`STDOUT_LOG=`, `STDERR_LOG=`, `ELAPSED_SECONDS=`, and `LAUNCH_ERROR=` when the
+reviewer failed to start. Read the paths from there rather than assembling them
+yourself; the Windows runner names one file differently on disk, and `LAUNCH_ERROR=`
+is what makes that invisible to you.
 
 On native Windows use `invoke-codex.ps1` with identical subcommands:
 
@@ -2820,8 +2838,13 @@ uses it.
 The runner copies your prompt into the run directory, so delete your own temporary
 copy as soon as `start` returns.
 
-`wait` exits 3 while the reviewer is still running and 0 once it has finished; 3 is
-a lifecycle fact, not a failure. Size each `wait` at 540 seconds or less under a
+**Run `status` once, a few seconds after `start`.** A reviewer that failed to launch
+never writes `exit-code`, so a `wait` would poll for its whole timeout before showing
+you `LAUNCH_ERROR` — nine minutes to learn something visible in five seconds.
+
+`wait` exits 3 while completion has **not been recorded** and 0 once it has; 3 is a
+lifecycle fact, not a failure. It does not by itself mean the reviewer is alive — check
+`LAUNCH_ERROR` to tell a working reviewer from one that never started. Size each `wait` at 540 seconds or less under a
 600-second shell-tool cap. Reviews of 250–600 seconds are ordinary and complex
 repositories exceed that — keep waiting rather than starting a second review.
 Never start a second review while the first has no `exit-code` file.
@@ -2831,11 +2854,38 @@ reviewing another project would win that race and you would read or destroy its 
 Match on the work directory the runner recorded, and require exactly one hit:
 
 ```bash
-grep -lx "$(pwd -P)" "${TMPDIR:-/tmp}"/superartes-codex-runs/run.*/work-dir 2>/dev/null
+grep -lx "<the work directory you started the run against>" \
+  "${TMPDIR:-/tmp}"/superartes-codex-runs/run.*/work-dir \
+  /tmp/superartes-codex-runs/run.*/work-dir 2>/dev/null |
+  sed 's:/work-dir$::' | sort -u
 ```
 
-If that returns more than one line, read each run's `mode`, `cmd` and `started-at` and
-choose deliberately. Never guess.
+Substitute the **physical** path of the directory you started the run against —
+`cd <that directory> && pwd -P`, since the runner canonicalises before recording, and
+`grep -lx` matches whole lines exactly. A symlinked path or a trailing slash silently
+returns nothing. For a code review that directory is the repository, which is not
+necessarily your current one. The `sed` matters:
+the grep finds `work-dir` files, and `RUN_DIR` is the directory containing one. The
+runner tolerates a changed `TMPDIR` — it validates a run directory by shape rather
+than against a recomputed root — so search both the current temporary directory
+and `/tmp`.
+
+On native Windows, list the runs root instead and read each run's `work-dir`, since
+the PowerShell runner roots its runs at the .NET temporary path rather than `$TMPDIR`:
+
+```powershell
+Get-ChildItem (Join-Path ([System.IO.Path]::GetTempPath()) 'superartes-codex-runs') -Directory -ErrorAction SilentlyContinue |
+  Where-Object { (Get-Content -LiteralPath (Join-Path $_.FullName 'work-dir') -Raw -ErrorAction SilentlyContinue) -and
+                 (Get-Content -LiteralPath (Join-Path $_.FullName 'work-dir') -Raw).Trim() -eq '<work directory>' } |
+  ForEach-Object { $_.FullName }
+```
+
+The `ForEach-Object` is what makes the output pasteable: without it PowerShell renders
+a table whose directory header line-wraps, and a wrapped path is exactly the copy
+corruption the literal-path rule exists to prevent.
+
+If either returns more than one run, read each one's `mode`, `cmd` and `started-at`
+and choose deliberately. Never guess.
 
 ### Codex controller
 
@@ -2858,18 +2908,26 @@ including) the line `## Triage and summary` with:
 digraph completion {
     "wait returns" [shape=doublecircle];
     "exit-code present?" [shape=diamond];
-    "Check LAUNCH_ERROR,\nthen wait again" [shape=box];
+    "LAUNCH_ERROR set?" [shape=diamond];
+    "The reviewer never started: read launch-err,\nreport it, discard --force,\nuse the degraded fallback" [shape=box];
+    "Still working. Checkpoint\nwith the user, then wait again" [shape=box];
+    "Past a reasonable duration:\nabandon with discard --force,\nuse the degraded fallback" [shape=box];
     "Read result, log and err-log" [shape=box];
     "Substantive feedback\nanywhere in evidence?" [shape=diamond];
     "Triage it" [shape=box];
     "Report the diagnostic,\ndo not retry" [shape=box];
-    "NEVER start a second review\nwhile exit-code is absent" [shape=octagon, style=filled, fillcolor=red, fontcolor=white];
+    "NEVER start a second review while\nexit-code is absent AND no LAUNCH_ERROR" [shape=octagon, style=filled, fillcolor=red, fontcolor=white];
     "discard artifacts,\nthen summarize" [shape=doublecircle];
 
     "wait returns" -> "exit-code present?";
-    "exit-code present?" -> "Check LAUNCH_ERROR,\nthen wait again" [label="no, not recorded"];
-    "Check LAUNCH_ERROR,\nthen wait again" -> "NEVER start a second review\nwhile exit-code is absent";
-    "NEVER start a second review\nwhile exit-code is absent" -> "wait returns";
+    "exit-code present?" -> "LAUNCH_ERROR set?" [label="no, not recorded"];
+    "LAUNCH_ERROR set?" -> "The reviewer never started: read launch-err,\nreport it, discard --force,\nuse the degraded fallback" [label="yes"];
+    "The reviewer never started: read launch-err,\nreport it, discard --force,\nuse the degraded fallback" -> "discard artifacts,\nthen summarize";
+    "LAUNCH_ERROR set?" -> "Still working. Checkpoint\nwith the user, then wait again" [label="no"];
+    "Still working. Checkpoint\nwith the user, then wait again" -> "NEVER start a second review while\nexit-code is absent AND no LAUNCH_ERROR";
+    "Still working. Checkpoint\nwith the user, then wait again" -> "Past a reasonable duration:\nabandon with discard --force,\nuse the degraded fallback" [label="user says stop"];
+    "Past a reasonable duration:\nabandon with discard --force,\nuse the degraded fallback" -> "discard artifacts,\nthen summarize";
+    "NEVER start a second review while\nexit-code is absent AND no LAUNCH_ERROR" -> "wait returns";
     "exit-code present?" -> "Read result, log and err-log" [label="yes"];
     "Read result, log and err-log" -> "Substantive feedback\nanywhere in evidence?";
     "Substantive feedback\nanywhere in evidence?" -> "Triage it" [label="yes, even after\na non-zero exit"];
@@ -2887,17 +2945,35 @@ non-empty. Substantive feedback anywhere in that evidence means triage it, even 
 non-zero exit.
 
 An absent `exit-code` means **completion was not recorded** — which covers a running
-reviewer, a failed launch and a killed wrapper alike. Check `LAUNCH_ERROR` before
-concluding the reviewer is still working.
+reviewer, a failed launch and a killed wrapper alike. `LAUNCH_ERROR` is what tells
+those apart, and it is the first thing to check.
+
+**If `LAUNCH_ERROR` is set, the reviewer never started and `exit-code` will never
+appear.** `status` shows this as `STATE=not-recorded` with a `LAUNCH_ERROR=` line.
+Waiting again is futile: read the file it names, report the cause, run
+`discard "<the literal RUN_DIR>" --force`, and go to the degraded fallback. Plain
+`discard` exits 66 on a run with no `exit-code`, so pass `--force` here.
+
+A failed launch is **not** a retry precondition — do not read it as "a demonstrated
+terminal failure" below and start a second review. The prohibition on a second review
+guards against duplicating a reviewer that might still be alive; a launch that failed
+leaves nothing alive, and nothing to gain from repeating it under the same conditions.
+Report it and fall back.
 
 For interactive work, fifteen minutes of recorded runtime is a checkpoint: report
 `ELAPSED_SECONDS` and ask whether to continue or abandon. For autonomous work, judge a
 reasonable duration from scope and complexity and extend it when justified.
 
-`discard` removes the run's artifacts and **does not stop the reviewer** — this runner has
+Abandoning a run that has not completed needs `discard "<the literal RUN_DIR>" --force`
+(the flag works on either side of the path). `discard` removes the run's artifacts and
+**does not stop a reviewer that is running** — this runner has
 no cancellation, so an abandoned review keeps running and keeps spending tokens until it
 finishes on its own. Say that plainly when you report abandoning one. `discard` refuses a
 run with no `exit-code` unless given `--force`.
+
+Exit 127 from `start` means `codex` is not on PATH. That is the "unavailable CLI"
+case below: do not retry it, go straight to the degraded fallback or report that no
+independent reviewer is available.
 
 A second attempt is permitted only by an unavailable CLI, a demonstrated terminal
 failure that produced no review, or explicit user approval. Approval never permits
@@ -2941,18 +3017,93 @@ next call.
 "$DIR/invoke-codex.sh" start review "$REPO_DIR" base "$TRUNK"
 "$DIR/invoke-codex.sh" start review "$REPO_DIR" commit "$SHA"
 "$DIR/invoke-codex.sh" wait    "<the literal RUN_DIR>" 540
+"$DIR/invoke-codex.sh" status  "<the literal RUN_DIR>"
 "$DIR/invoke-codex.sh" discard "<the literal RUN_DIR>"
 ```
 
-Native Windows uses `invoke-codex.ps1` with the same subcommands. Follow
-`superartes:external-review`'s Invocation and Completion sections for `wait` sizing,
-the fifteen-minute checkpoint, and the retry preconditions. Never treat a live run as
-a failure.
+Pick ONE `start` line. Every `$NAME` is a placeholder to substitute — `$DIR` the
+resolved `external-review` skill directory, `$REPO_DIR` the repository, `$TRUNK` the
+detected trunk branch, `$SHA` the validated commit. Only `RUN_DIR` is a literal you
+paste back. `status` reports without waiting, and `wait` ends by printing the same
+block; take every artifact path from it rather than assembling paths yourself.
+
+Resolve `$DIR` from the sibling skill's absolute source directory as reported by your
+skill loader; never resolve it relative to the user's project.
+
+Follow `superartes:external-review`'s Invocation and Completion sections for `wait`
+sizing, exit 3 meaning completion-not-recorded rather than failure, the
+fifteen-minute checkpoint, what exit 127 means, `discard` semantics, the retry
+preconditions, and the rule that both `$DIR` and `RUN_DIR` must be written as absolute
+literals because no shell variable survives to your next call. Never treat a live run
+as a failure.
+
+Native Windows uses `invoke-codex.ps1` with the same subcommands.
 
 ### Codex controller
 
 Read `invoking-reviewers.md` from the sibling `external-review` skill's absolute source directory; never resolve it relative to the user's project. Use a stable code review key containing canonical repository and scope, then follow the managed lifecycle. Never treat a live process or an empty live result as failure, and never retry `indeterminate` immediately. That adapter is POSIX-only; a Codex controller on native Windows has no supported independent reviewer.
 `````
+
+- [ ] **Step 3b: Define the degraded fallback in `skills/external-code-review/SKILL.md`**
+
+The word "fallback" appeared exactly once in that file and was never defined — the text
+that defined it named a managed-adapter profile the Claude Code path no longer uses.
+`external-review`'s fallback is document-only, and a diff is not a document. Replace:
+
+```
+## Completion and triage
+
+Inspect all terminal evidence before fallback.
+```
+
+with:
+
+```
+## Completion and triage
+
+Inspect all terminal evidence before fallback. The degraded fallback for a code review
+is `superartes:requesting-code-review` — a same-model reviewer of the same changes.
+`superartes:external-review`'s document templates do not apply here; a diff is not a
+document. Label it degraded, never independent.
+```
+
+- [ ] **Step 3c: Retire "profile" from both Reviewer selection table headers**
+
+"Profile" is managed-adapter vocabulary, and it now sits directly above a paragraph
+saying the table names the mode rather than the mechanism. The header is **not**
+validator-pinned — only the two data rows are — so this is safe, but re-check the pins
+afterwards. In BOTH `skills/external-review/SKILL.md` and
+`skills/external-code-review/SKILL.md`, change:
+
+```
+| Controller | Independent profile |
+```
+
+to:
+
+```
+| Controller | Independent review mode |
+```
+
+- [ ] **Step 3d: Make the Scope justification cover both controllers**
+
+In `skills/external-code-review/SKILL.md`, the rule is right on both paths but its
+reason had gone one-sided: a Claude Code controller has no review key and no adapter.
+Leave the pinned sentence below it untouched. Replace:
+
+```
+Choose one scope. Its kind and value are two separate adapter arguments, and two
+separate fields of the review key — never a single `kind|value` string.
+```
+
+with:
+
+```
+Choose one scope. Its kind and value are always two separate arguments — two
+positional arguments to the runner under a Claude Code controller, two separate
+fields of the review key under a Codex controller — never a single `kind|value`
+string.
+```
 
 - [ ] **Step 4: Verify the pinned strings and the DOT block**
 
