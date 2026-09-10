@@ -240,19 +240,6 @@ assert_equals() { if [ "$2" = "$3" ]; then pass "$1"; else fail "$1" "expected '
 assert_contains() {
     case "$3" in *"$2"*) pass "$1" ;; *) fail "$1" "expected '$2' in: $3" ;; esac
 }
-assert_absent() {
-    case "$3" in *"$2"*) fail "$1" "did not expect '$2' in: $3" ;; *) pass "$1" ;; esac
-}
-
-minimal_path() {
-    # A PATH with the utilities the runner needs but deliberately without `codex`.
-    local dirs="" d tool
-    for tool in mktemp date sleep cat mv rm wc tr mkdir; do
-        d=$(dirname "$(command -v "$tool")")
-        case ":$dirs:" in *":$d:"*) ;; *) dirs="${dirs:+$dirs:}$d" ;; esac
-    done
-    printf '%s' "$dirs"
-}
 
 new_sandbox() {
     local sandbox
@@ -285,16 +272,45 @@ run_in() {
     FAKE_CODEX_ARGV="$sandbox/argv" FAKE_CODEX_STDIN="$sandbox/stdin" \
     FAKE_CODEX_SLEEP="${FAKE_CODEX_SLEEP:-}" FAKE_CODEX_EXIT="${FAKE_CODEX_EXIT:-0}" \
     FAKE_CODEX_RESULT="${FAKE_CODEX_RESULT:-fake review body}" \
-    SUPERARTES_CODEX_POLL_INTERVAL=1 \
+    SUPERARTES_CODEX_POLL_INTERVAL="${SUPERARTES_CODEX_POLL_INTERVAL:-1}" \
     SUPERARTES_CODEX_NO_SETSID="${SUPERARTES_CODEX_NO_SETSID:-0}" \
         "$RUNNER" "$@"
 }
 
-run_dir_from() { printf '%s' "$1" | sed -n 's/^RUN_DIR=//p'; }
+run_dir_or_fail() {
+    # run_dir_or_fail <label> <start-output>
+    #
+    # Reads the RUN_DIR= line from start's output into the global RUN_DIR and
+    # proves it names a real directory. Every test must go through this rather
+    # than parsing the line itself: if the runner cannot be resolved or dies
+    # early, RUN_DIR comes back EMPTY, and assertions of the form
+    # `[ -d "$run_dir" ] || pass` then succeed vacuously — a broken suite that
+    # reports itself green. Callers pair it with `|| return` so the rest of the
+    # test is skipped rather than run against nothing.
+    #
+    # It counts the check itself, in THIS shell. A helper invoked inside $( )
+    # would increment the counters in a subshell, where the increment dies with
+    # the subshell and a genuine failure would still print "0 failed".
+    local label="$1" out="$2"
+    RUN_DIR=$(printf '%s' "$out" | sed -n 's/^RUN_DIR=//p')
+    if [ -z "$RUN_DIR" ]; then
+        fail "$label yields a usable run directory" "no RUN_DIR= line in: $out"
+        return 1
+    fi
+    if [ ! -d "$RUN_DIR" ]; then
+        fail "$label yields a usable run directory" "RUN_DIR is not a directory: $RUN_DIR"
+        return 1
+    fi
+    pass "$label yields a usable run directory"
+}
 
 await_done() {
-    local run_dir="$1" tries=0
-    while [ "$tries" -lt 150 ]; do
+    # await_done <run-dir> [tries] — poll for the completion sentinel, 0.1s apart.
+    # The default ceiling is generous on purpose: the longest fake reviewer in
+    # this suite sleeps 10 seconds, and a loaded machine must not turn that into
+    # a spurious failure. Pass a small ceiling when proving a run never finishes.
+    local run_dir="$1" limit="${2:-300}" tries=0
+    while [ "$tries" -lt "$limit" ]; do
         [ -f "$run_dir/exit-code" ] && return 0
         sleep 0.1; tries=$((tries + 1))
     done
@@ -306,13 +322,22 @@ await_done() {
 # --------------------------------------------------------------------------
 
 test_missing_codex() {
-    local sandbox path out st
-    sandbox=$(new_sandbox); path=$(minimal_path)
-    if PATH="$path" command -v codex >/dev/null 2>&1; then
-        printf 'SKIP: codex is on the minimal PATH, cannot test its absence\n'
-        rm -rf "$sandbox"; return 0
-    fi
-    out=$(PATH="$path" TMPDIR="$sandbox/tmp" "$RUNNER" start review "$sandbox/work" uncommitted 2>&1)
+    # The PATH here is a directory of the test's own making, so `codex` cannot be
+    # on it however the machine is set up. Deriving it from where coreutils live
+    # instead would silently SKIP on any machine that installs codex alongside
+    # them — which is common enough that exit 127 would never be tested at all.
+    #
+    # The directory holds one symlink, to bash: the shebang's `/usr/bin/env bash`
+    # resolves bash through PATH, so a truly empty PATH would fail before the
+    # runner ran. Everything the runner touches before the codex check is a
+    # shell builtin, so nothing else is needed.
+    local sandbox out st
+    sandbox=$(new_sandbox)
+    mkdir -p "$sandbox/nocodex"
+    ln -s "$(command -v bash)" "$sandbox/nocodex/bash"
+
+    out=$(PATH="$sandbox/nocodex" TMPDIR="$sandbox/tmp" \
+        "$RUNNER" start review "$sandbox/work" uncommitted 2>&1)
     st=$?
     assert_status "missing codex exits 127" 127 "$st"
     assert_contains "missing codex explains itself" "not on PATH" "$out"
@@ -339,13 +364,14 @@ test_usage_errors() {
 # --------------------------------------------------------------------------
 
 test_prompt_lifecycle() {
-    local sandbox out run_dir st argv
+    local sandbox out run_dir st argv expected
     sandbox=$(new_sandbox)
     printf 'review this document\n' > "$sandbox/prompt.md"
 
     out=$(run_in "$sandbox" start prompt "$sandbox/work" "$sandbox/prompt.md")
     assert_contains "start prompt prints RUN_DIR" "RUN_DIR=" "$out"
-    run_dir=$(run_dir_from "$out")
+    run_dir_or_fail "start prompt" "$out" || { rm -rf "$sandbox"; return; }
+    run_dir="$RUN_DIR"
     assert_equals "prompt is copied into the run directory" \
         "review this document" "$(cat "$run_dir/prompt")"
 
@@ -367,9 +393,19 @@ test_prompt_lifecycle() {
     assert_contains "stderr captures the event stream" \
         "fake codex event stream" "$(cat "$run_dir/err-log")"
 
+    # Exact argument vector, one per line. A substring test would still pass with
+    # `-s` and `read-only` separated, or with the sandbox flag landing after the
+    # `-` that makes codex read the prompt from stdin — the precise defect class
+    # an earlier review caught in review mode.
     argv=$(cat "$sandbox/argv")
-    assert_contains "prompt mode passes the read-only sandbox" "read-only" "$argv"
-    assert_contains "prompt mode skips the git repo check" "--skip-git-repo-check" "$argv"
+    expected="exec
+-
+-s
+read-only
+--skip-git-repo-check
+-o
+$run_dir/result"
+    assert_equals "prompt mode builds the exact argument vector" "$expected" "$argv"
     rm -rf "$sandbox"
 }
 
@@ -377,7 +413,9 @@ test_exit_code_is_a_bare_integer() {
     local sandbox out run_dir contents
     sandbox=$(new_sandbox); printf 'x\n' > "$sandbox/p.md"
     out=$(run_in "$sandbox" start prompt "$sandbox/work" "$sandbox/p.md")
-    run_dir=$(run_dir_from "$out"); await_done "$run_dir" || fail "run finishes" "no sentinel"
+    run_dir_or_fail "start prompt" "$out" || { rm -rf "$sandbox"; return; }
+    run_dir="$RUN_DIR"
+    await_done "$run_dir" || fail "run finishes" "no sentinel"
     contents=$(cat "$run_dir/exit-code")
     case "$contents" in
         ''|*[!0-9]*) fail "exit-code holds a bare integer" "got '$contents'" ;;
@@ -390,7 +428,9 @@ test_nonzero_exit_is_recorded() {
     local sandbox out run_dir
     sandbox=$(new_sandbox); printf 'x\n' > "$sandbox/p.md"
     out=$(FAKE_CODEX_EXIT=7 run_in "$sandbox" start prompt "$sandbox/work" "$sandbox/p.md")
-    run_dir=$(run_dir_from "$out"); await_done "$run_dir" || fail "run finishes" "no sentinel"
+    run_dir_or_fail "start prompt" "$out" || { rm -rf "$sandbox"; return; }
+    run_dir="$RUN_DIR"
+    await_done "$run_dir" || fail "run finishes" "no sentinel"
     assert_equals "non-zero reviewer exit is recorded" "7" "$(cat "$run_dir/exit-code")"
     rm -rf "$sandbox"
 }
@@ -408,7 +448,8 @@ test_review_scopes() {
             base)        out=$(run_in "$sandbox" start review "$sandbox/work" base master) ;;
             commit)      out=$(run_in "$sandbox" start review "$sandbox/work" commit deadbeef) ;;
         esac
-        run_dir=$(run_dir_from "$out")
+        run_dir_or_fail "start review $scope" "$out" || { rm -rf "$sandbox"; continue; }
+        run_dir="$RUN_DIR"
         await_done "$run_dir" || fail "$scope run finishes" "no sentinel"
         argv=$(cat "$sandbox/argv")
 
@@ -471,7 +512,8 @@ test_runs_without_setsid() {
     local sandbox out run_dir
     sandbox=$(new_sandbox)
     out=$(SUPERARTES_CODEX_NO_SETSID=1 run_in "$sandbox" start review "$sandbox/work" uncommitted)
-    run_dir=$(run_dir_from "$out")
+    run_dir_or_fail "start review without setsid" "$out" || { rm -rf "$sandbox"; return; }
+    run_dir="$RUN_DIR"
     if await_done "$run_dir"; then pass "the run completes without setsid"; else
         fail "the run completes without setsid" "sentinel never appeared"; fi
     assert_equals "no launcher error without setsid" "" "$(cat "$run_dir/launch-err" 2>/dev/null)"
@@ -480,15 +522,42 @@ test_runs_without_setsid() {
 
 test_launch_error_is_surfaced() {
     # A launch failure must not look like a running reviewer.
+    #
+    # The launcher's stderr is redirected to launch-err instead of /dev/null for
+    # exactly one reason: a reviewer that never starts would otherwise be
+    # indistinguishable from one still working, and the controller would wait
+    # forever. So the launch is made to FAIL FOR REAL — a setsid shim on the
+    # sandbox PATH that refuses — rather than hand-writing launch-err, which
+    # would test only how status formats a file the test itself created.
     local sandbox out run_dir status_out
     sandbox=$(new_sandbox)
-    out=$(FAKE_CODEX_SLEEP=5 run_in "$sandbox" start review "$sandbox/work" uncommitted)
-    run_dir=$(run_dir_from "$out")
-    printf 'setsid: command not found\n' > "$run_dir/launch-err"
+    cat > "$sandbox/bin/setsid" <<'SHIM'
+#!/usr/bin/env bash
+printf 'setsid: shim refusing to launch\n' >&2
+exit 1
+SHIM
+    chmod +x "$sandbox/bin/setsid"
+
+    out=$(SUPERARTES_CODEX_NO_SETSID=0 run_in "$sandbox" start review "$sandbox/work" uncommitted)
+    run_dir_or_fail "start with a failing setsid" "$out" || { rm -rf "$sandbox"; return; }
+    run_dir="$RUN_DIR"
+
+    # A short ceiling: the shim fails immediately, so the sentinel is not merely
+    # late — it must never arrive at all.
+    if await_done "$run_dir" 30; then
+        fail "a failed launch never records completion" "exit-code appeared anyway"
+    else
+        pass "a failed launch never records completion"
+    fi
+    if [ -s "$run_dir/launch-err" ]; then
+        pass "the launcher's own stderr reaches launch-err"
+    else
+        fail "the launcher's own stderr reaches launch-err" "launch-err is empty"
+    fi
+
     status_out=$(run_in "$sandbox" status "$run_dir" 2>&1)
     assert_contains "status surfaces a launcher error" "LAUNCH_ERROR=" "$status_out"
     assert_contains "an unfinished run is not called running" "STATE=not-recorded" "$status_out"
-    await_done "$run_dir"
     rm -rf "$sandbox"
 }
 
@@ -497,10 +566,14 @@ test_launch_error_is_surfaced() {
 # --------------------------------------------------------------------------
 
 test_status_and_wait() {
+    # The fake reviewer sleeps 10 seconds so that "still unfinished" is a
+    # comfortable claim on a loaded machine: the status check below and the
+    # 2-second wait both have seconds of headroom before it could finish early.
     local sandbox out run_dir st
     sandbox=$(new_sandbox)
-    out=$(FAKE_CODEX_SLEEP=6 run_in "$sandbox" start review "$sandbox/work" uncommitted)
-    run_dir=$(run_dir_from "$out")
+    out=$(FAKE_CODEX_SLEEP=10 run_in "$sandbox" start review "$sandbox/work" uncommitted)
+    run_dir_or_fail "start review" "$out" || { rm -rf "$sandbox"; return; }
+    run_dir="$RUN_DIR"
 
     run_in "$sandbox" status "$run_dir" > "$sandbox/s.txt" 2>&1; st=$?
     assert_status "status of an unfinished run exits 3" 3 "$st"
@@ -509,7 +582,7 @@ test_status_and_wait() {
     run_in "$sandbox" wait "$run_dir" 2 > "$sandbox/w.txt" 2>&1; st=$?
     assert_status "wait exits 3 when it times out" 3 "$st"
 
-    run_in "$sandbox" wait "$run_dir" 40 > "$sandbox/w.txt" 2>&1; st=$?
+    run_in "$sandbox" wait "$run_dir" 60 > "$sandbox/w.txt" 2>&1; st=$?
     assert_status "wait exits 0 once the run finishes" 0 "$st"
     assert_contains "wait reports done" "STATE=done" "$(cat "$sandbox/w.txt")"
 
@@ -524,8 +597,9 @@ test_status_and_wait() {
 test_discard() {
     local sandbox out run_dir st
     sandbox=$(new_sandbox)
-    out=$(FAKE_CODEX_SLEEP=6 run_in "$sandbox" start review "$sandbox/work" uncommitted)
-    run_dir=$(run_dir_from "$out")
+    out=$(FAKE_CODEX_SLEEP=10 run_in "$sandbox" start review "$sandbox/work" uncommitted)
+    run_dir_or_fail "start review" "$out" || { rm -rf "$sandbox"; return; }
+    run_dir="$RUN_DIR"
 
     run_in "$sandbox" discard "$run_dir" >/dev/null 2>&1; st=$?
     assert_status "discard of an unfinished run exits 66" 66 "$st"
@@ -537,7 +611,9 @@ test_discard() {
     assert_contains "discard reports its state" "STATE=discarded" "$(cat "$sandbox/d.txt")"
     if [ -d "$run_dir" ]; then fail "forced discard removes the run" "directory survived"; else
         pass "forced discard removes the run"; fi
-    await_done "$sandbox" 2>/dev/null
+    # Nothing to await: the run directory has just been removed, and the reviewer
+    # this test discarded is still sleeping. Waiting on the sandbox path (which
+    # never holds a sentinel) only burned the full polling ceiling.
     rm -rf "$sandbox"
 }
 
@@ -545,7 +621,9 @@ test_discard_after_completion() {
     local sandbox out run_dir st
     sandbox=$(new_sandbox)
     out=$(run_in "$sandbox" start review "$sandbox/work" uncommitted)
-    run_dir=$(run_dir_from "$out"); await_done "$run_dir"
+    run_dir_or_fail "start review" "$out" || { rm -rf "$sandbox"; return; }
+    run_dir="$RUN_DIR"
+    await_done "$run_dir" || fail "run finishes" "no sentinel"
     run_in "$sandbox" discard "$run_dir" >/dev/null 2>&1; st=$?
     assert_status "discard of a finished run exits 0" 0 "$st"
     if [ -d "$run_dir" ]; then fail "discard removes the run directory" "directory survived"; else
@@ -559,7 +637,9 @@ test_discard_rejects_traversal() {
     local sandbox out run_dir victim traversal st
     sandbox=$(new_sandbox)
     out=$(run_in "$sandbox" start review "$sandbox/work" uncommitted)
-    run_dir=$(run_dir_from "$out"); await_done "$run_dir"
+    run_dir_or_fail "start review" "$out" || { rm -rf "$sandbox"; return; }
+    run_dir="$RUN_DIR"
+    await_done "$run_dir" || fail "run finishes" "no sentinel"
 
     victim="$sandbox/tmp/victim"
     mkdir -p "$victim"
@@ -574,6 +654,115 @@ test_discard_rejects_traversal() {
 
     run_in "$sandbox" discard "$victim" >/dev/null 2>&1; st=$?
     assert_status "discard rejects a directory outside the runs root" 65 "$st"
+    rm -rf "$sandbox"
+}
+
+test_malformed_run_directory() {
+    # A directory that exists but carries neither marker file was not produced by
+    # this runner. It is the case that stands between `discard` and an rm -rf of
+    # something the caller merely mistyped, so both commands must refuse it.
+    local sandbox bare st
+    sandbox=$(new_sandbox)
+    bare="$sandbox/tmp/superartes-codex-runs/run.bare"
+    mkdir -p "$bare"
+
+    run_in "$sandbox" status "$bare" >/dev/null 2>&1; st=$?
+    assert_status "status of a malformed run directory exits 65" 65 "$st"
+
+    run_in "$sandbox" discard "$bare" >/dev/null 2>&1; st=$?
+    assert_status "discard of a malformed run directory exits 65" 65 "$st"
+    if [ -d "$bare" ]; then pass "a malformed run directory survives discard"; else
+        fail "a malformed run directory survives discard" "it was removed"; fi
+    rm -rf "$sandbox"
+}
+
+test_discard_rejects_a_foreign_child_of_the_runs_root() {
+    # Well-formed enough to pass require_run_dir, and sitting directly inside the
+    # runs root, but not named run.* — so this runner did not create it and must
+    # not remove it. Only the name check stands between the two cases.
+    local sandbox intruder st
+    sandbox=$(new_sandbox)
+    intruder="$sandbox/tmp/superartes-codex-runs/somebody-elses-data"
+    mkdir -p "$intruder"
+    date +%s > "$intruder/started-at"; printf 'review\n' > "$intruder/mode"
+    printf '0\n' > "$intruder/exit-code"
+
+    run_in "$sandbox" discard "$intruder" >/dev/null 2>&1; st=$?
+    assert_status "discard rejects a runs-root child it did not create" 65 "$st"
+    if [ -d "$intruder" ]; then pass "the foreign directory survives"; else
+        fail "the foreign directory survives" "it was removed"; fi
+    rm -rf "$sandbox"
+}
+
+test_discard_across_tmpdirs() {
+    # Each subcommand is a separate process for an agent, and TMPDIR need not
+    # match between the call that starts a run and the call that discards it.
+    # Validating against a runs root recomputed from $TMPDIR would make a run
+    # started under one TMPDIR permanently undiscardable under another, so the
+    # check is on the run directory's shape instead. This is the regression test.
+    local sandbox out run_dir st
+    sandbox=$(new_sandbox)
+    mkdir -p "$sandbox/other-tmp"
+    out=$(run_in "$sandbox" start review "$sandbox/work" uncommitted)
+    run_dir_or_fail "start review" "$out" || { rm -rf "$sandbox"; return; }
+    run_dir="$RUN_DIR"
+    await_done "$run_dir" || fail "run finishes" "no sentinel"
+
+    PATH="$sandbox/bin:$PATH" TMPDIR="$sandbox/other-tmp" \
+        "$RUNNER" discard "$run_dir" >/dev/null 2>&1; st=$?
+    assert_status "discard works under a different TMPDIR" 0 "$st"
+    if [ -d "$run_dir" ]; then fail "the cross-TMPDIR discard removes the run" "directory survived"; else
+        pass "the cross-TMPDIR discard removes the run"; fi
+    rm -rf "$sandbox"
+}
+
+test_force_flag_position() {
+    # `discard --force <run-dir>` and `discard <run-dir> --force` must both work:
+    # an agent composing the command from a template should not have to remember
+    # which side the flag goes on, and the wrong order used to be reported as
+    # "not a run directory: --force".
+    local sandbox out run_dir st
+    sandbox=$(new_sandbox)
+    out=$(FAKE_CODEX_SLEEP=10 run_in "$sandbox" start review "$sandbox/work" uncommitted)
+    run_dir_or_fail "start review" "$out" || { rm -rf "$sandbox"; return; }
+    run_dir="$RUN_DIR"
+
+    run_in "$sandbox" discard --force "$run_dir" > "$sandbox/d.txt" 2>&1; st=$?
+    assert_status "--force before the run directory exits 0" 0 "$st"
+    assert_contains "--force before the run directory discards" \
+        "STATE=discarded" "$(cat "$sandbox/d.txt")"
+    rm -rf "$sandbox"
+}
+
+test_help() {
+    # The sibling invoke-reviewer.sh treats --help as a success path, and a
+    # controller written against one runner should not trip over the other.
+    local sandbox out st
+    sandbox=$(new_sandbox)
+    out=$(run_in "$sandbox" --help 2>/dev/null); st=$?
+    assert_status "--help exits 0" 0 "$st"
+    assert_contains "--help prints usage to stdout" "invoke-codex.sh start prompt" "$out"
+    out=$(run_in "$sandbox" -h 2>/dev/null); st=$?
+    assert_status "-h exits 0" 0 "$st"
+    rm -rf "$sandbox"
+}
+
+test_poll_interval_validation() {
+    # SUPERARTES_CODEX_POLL_INTERVAL is an environment knob that feeds both a loop
+    # guard and shell arithmetic. Zero spins forever; a non-numeric value is read
+    # as a variable name and aborts with "unbound variable" and exit 1, outside
+    # this runner's documented exit codes. Both must be usage errors instead.
+    local sandbox out run_dir st
+    sandbox=$(new_sandbox)
+    out=$(run_in "$sandbox" start review "$sandbox/work" uncommitted)
+    run_dir_or_fail "start review" "$out" || { rm -rf "$sandbox"; return; }
+    run_dir="$RUN_DIR"
+    await_done "$run_dir" || fail "run finishes" "no sentinel"
+
+    SUPERARTES_CODEX_POLL_INTERVAL=0 run_in "$sandbox" wait "$run_dir" 4 >/dev/null 2>&1; st=$?
+    assert_status "a zero poll interval exits 64" 64 "$st"
+    SUPERARTES_CODEX_POLL_INTERVAL=soon run_in "$sandbox" wait "$run_dir" 4 >/dev/null 2>&1; st=$?
+    assert_status "a non-numeric poll interval exits 64" 64 "$st"
     rm -rf "$sandbox"
 }
 
@@ -592,6 +781,12 @@ test_status_and_wait
 test_discard
 test_discard_after_completion
 test_discard_rejects_traversal
+test_malformed_run_directory
+test_discard_rejects_a_foreign_child_of_the_runs_root
+test_discard_across_tmpdirs
+test_force_flag_position
+test_help
+test_poll_interval_validation
 
 printf '\n%s passed, %s failed\n' "$passed" "$failed"
 [ "$failed" -eq 0 ]
@@ -639,22 +834,29 @@ Replace the entire contents of `skills/external-review/invoke-codex.sh` with:
 #   invoke-codex.sh status  <run-dir>
 #   invoke-codex.sh wait    <run-dir> <timeout-seconds>
 #   invoke-codex.sh discard <run-dir> [--force]
+#   invoke-codex.sh --help
 #
 # Exit codes (a subset of the managed adapter's, so the two never contradict):
 #   0    operation succeeded; for status/wait, completion has been recorded
 #   3    completion not yet recorded (status/wait only) — a lifecycle fact, not a failure
 #   64   usage error
-#   65   the run directory is missing, malformed, or outside the runs root
+#   65   the run's storage is unusable — it could not be created, written to,
+#        validated as a run directory this runner made, or removed
 #   66   discard refused because completion is not recorded (--force overrides)
 #   127  the `codex` executable is not on PATH
 
 set -u
 
 # All runs live under one predictable parent so a lost run directory can be found
-# again by matching recorded metadata, without a registry.
-RUNS_ROOT="${TMPDIR:-/tmp}/superartes-codex-runs"
+# again by matching recorded metadata, without a registry. The directory NAME is
+# the constant; `discard` validates against that name rather than against the
+# path below, because TMPDIR can differ between the tool call that starts a run
+# and the one that discards it, and a run must stay discardable when it does.
+RUNS_DIR_NAME="superartes-codex-runs"
+RUNS_ROOT="${TMPDIR:-/tmp}/$RUNS_DIR_NAME"
 
-# Seconds between sentinel checks in `wait`. Overridable for the test suite only.
+# Seconds between sentinel checks in `wait`. Overridable for the test suite only,
+# and validated in cmd_wait, which is its only consumer.
 POLL_INTERVAL="${SUPERARTES_CODEX_POLL_INTERVAL:-2}"
 
 die() {
@@ -663,7 +865,10 @@ die() {
 }
 
 usage() {
-    cat >&2 <<'USAGE'
+    # Printed to STDOUT, so `--help` is a success path — the sibling
+    # invoke-reviewer.sh behaves the same way, and a controller written against
+    # one runner should not trip over the other. usage_error is the failure form.
+    cat <<'USAGE'
 Usage:
   invoke-codex.sh start prompt <work-dir> <prompt-file>
   invoke-codex.sh start review <work-dir> uncommitted
@@ -672,7 +877,12 @@ Usage:
   invoke-codex.sh status  <run-dir>
   invoke-codex.sh wait    <run-dir> <timeout-seconds>
   invoke-codex.sh discard <run-dir> [--force]
+  invoke-codex.sh --help
 USAGE
+}
+
+usage_error() {
+    usage >&2
     exit 64
 }
 
@@ -680,7 +890,7 @@ require_run_dir() {
     # Reject anything that is not a run directory this script created. Both marker
     # files are required: a bare directory with one of them is not enough to earn
     # the rm -rf that `discard` performs.
-    [ -n "${1:-}" ] || usage
+    [ -n "${1:-}" ] || usage_error
     [ -d "$1" ] || die 65 "not a run directory: $1"
     [ -f "$1/started-at" ] && [ -f "$1/mode" ] || \
         die 65 "run directory is malformed (missing started-at or mode): $1"
@@ -720,8 +930,10 @@ launch() {
     '
 
     # SUPERARTES_CODEX_NO_SETSID=1 forces the fallback so the macOS path can be
-    # exercised on Linux. The managed adapter carries the same switch.
-    if [ "${SUPERARTES_CODEX_NO_SETSID:-0}" -ne 1 ] && command -v setsid >/dev/null 2>&1; then
+    # exercised on Linux. The managed adapter carries the same switch. Compared as
+    # a STRING: a numeric test on a knob someone may set to "true" prints
+    # "integer expected" onto start's stderr instead of just not matching.
+    if [ "${SUPERARTES_CODEX_NO_SETSID:-0}" != 1 ] && command -v setsid >/dev/null 2>&1; then
         nohup setsid sh -c "$inner" _ "$run_dir" "$work_dir" "$stdin_file" "$@" \
             </dev/null >/dev/null 2>"$run_dir/launch-err" &
     else
@@ -735,7 +947,7 @@ launch() {
 
 start_prompt() {
     local run_dir="$1" work_dir="$2" prompt_file="${3:-}"
-    [ -n "$prompt_file" ] || { rm -rf "$run_dir"; usage; }
+    [ -n "$prompt_file" ] || { rm -rf "$run_dir"; usage_error; }
     [ -f "$prompt_file" ] || { rm -rf "$run_dir"; die 64 "prompt file not found: $prompt_file"; }
 
     # Copy the prompt in, so the caller may delete its own temporary copy as soon
@@ -757,7 +969,7 @@ start_review() {
     # `codex exec review` also rejects a custom prompt combined with a scope flag,
     # so no prompt is composed for this mode.
     local run_dir="$1" work_dir="$2" scope_kind="${3:-}" scope_value="${4:-}"
-    [ -n "$scope_kind" ] || { rm -rf "$run_dir"; usage; }
+    [ -n "$scope_kind" ] || { rm -rf "$run_dir"; usage_error; }
 
     case "$scope_kind" in
         uncommitted)
@@ -782,7 +994,7 @@ start_review() {
 
 cmd_start() {
     local mode="${1:-}" work_dir="${2:-}"
-    [ -n "$mode" ] && [ -n "$work_dir" ] || usage
+    [ -n "$mode" ] && [ -n "$work_dir" ] || usage_error
     shift 2
 
     command -v codex >/dev/null 2>&1 || die 127 "codex is not on PATH"
@@ -794,6 +1006,10 @@ cmd_start() {
     work_dir=$(cd "$work_dir" && pwd -P) || die 64 "cannot enter work directory: $work_dir"
 
     mkdir -p "$RUNS_ROOT" || die 65 "cannot create the runs root: $RUNS_ROOT"
+    # The runs root has a fixed, predictable name in a directory that is usually
+    # shared, and mkdir gives it the ambient umask. Reviews carry repository
+    # contents, so narrow it to the owner rather than trusting that umask.
+    chmod 700 "$RUNS_ROOT" || die 65 "cannot restrict the runs root: $RUNS_ROOT"
     local run_dir
     run_dir=$(mktemp -d "$RUNS_ROOT/run.XXXXXXXX") || die 65 "cannot create a run directory"
     run_dir=$(cd "$run_dir" && pwd -P)
@@ -805,7 +1021,7 @@ cmd_start() {
     case "$mode" in
         prompt) start_prompt "$run_dir" "$work_dir" "$@" ;;
         review) start_review "$run_dir" "$work_dir" "$@" ;;
-        *) rm -rf "$run_dir"; usage ;;
+        *) rm -rf "$run_dir"; usage_error ;;
     esac
 
     printf 'RUN_DIR=%s\n' "$run_dir"
@@ -819,6 +1035,11 @@ cmd_status() {
 
     printf 'RUN_DIR=%s\n' "$run_dir"
     printf 'MODE=%s\n' "$(cat "$run_dir/mode")"
+    # A recovered run is identified by its recorded metadata — that is the whole
+    # justification for the fixed runs root — so status must report which working
+    # tree it belongs to and what was actually run, not just that it exists.
+    printf 'WORK_DIR=%s\n' "$(cat "$run_dir/work-dir" 2>/dev/null)"
+    printf 'CMD=%s\n' "$(cat "$run_dir/cmd" 2>/dev/null)"
     printf 'ELAPSED_SECONDS=%s\n' "$elapsed"
     printf 'RESULT=%s\n' "$run_dir/result"
     # Codex writes its FINAL MESSAGE to stdout and its progress event stream to
@@ -851,8 +1072,19 @@ cmd_wait() {
     require_run_dir "${1:-}"
     local run_dir="$1" timeout="${2:-}" waited=0
     case "$timeout" in
-        ''|*[!0-9]*) usage ;;
+        ''|*[!0-9]*) usage_error ;;
     esac
+
+    # The poll interval arrives from the environment, so hold it to the same
+    # standard as the timeout argument. Zero would spin the loop below forever
+    # without ever advancing `waited`, and a non-numeric value is read as a
+    # variable name by the arithmetic, aborting with "unbound variable" and
+    # exit 1 — a failure outside this script's documented contract.
+    case "$POLL_INTERVAL" in
+        ''|*[!0-9]*) die 64 "SUPERARTES_CODEX_POLL_INTERVAL must be a positive integer: $POLL_INTERVAL" ;;
+    esac
+    [ "$POLL_INTERVAL" -gt 0 ] || \
+        die 64 "SUPERARTES_CODEX_POLL_INTERVAL must be a positive integer: $POLL_INTERVAL"
 
     while [ "$waited" -lt "$timeout" ]; do
         [ -f "$run_dir/exit-code" ] && break
@@ -867,27 +1099,46 @@ cmd_discard() {
     # Removes the run's artifacts. It does NOT stop the reviewer: this runner has
     # no cancellation, so a discarded review keeps running and keeps spending
     # tokens until it finishes on its own. Say so when reporting to the user.
-    require_run_dir "${1:-}"
-    local run_dir="$1" force="${2:-}"
+    #
+    # --force is accepted on either side of the run directory, so an agent
+    # composing the command from a template need not remember which.
+    local run_dir="" force="" arg
+    for arg in "$@"; do
+        case "$arg" in
+            --force) force="--force" ;;
+            *)
+                [ -z "$run_dir" ] || usage_error
+                run_dir="$arg"
+                ;;
+        esac
+    done
+    require_run_dir "$run_dir"
 
     if [ ! -f "$run_dir/exit-code" ] && [ "$force" != "--force" ]; then
         die 66 "completion not recorded for: $run_dir (pass --force to discard the artifacts anyway)"
     fi
 
-    # Canonicalise BOTH sides before comparing. A string-prefix test on the raw
-    # argument accepts traversal — ".../run.x/../../victim" matches a
-    # "$RUNS_ROOT"/run.* glob — and also rejects a legitimate path spelled
-    # differently, such as /var versus /private/var on macOS.
-    local canon_root canon_run
-    canon_root=$(cd "$RUNS_ROOT" 2>/dev/null && pwd -P) || die 65 "runs root is missing: $RUNS_ROOT"
+    # Canonicalise before checking, because a test on the raw argument accepts
+    # traversal: ".../run.x/../../victim" matches a "$RUNS_ROOT"/run.* glob.
+    #
+    # The check is on the resolved path's SHAPE — a "run.*" directory whose parent
+    # is named superartes-codex-runs — and deliberately not on $RUNS_ROOT, which is
+    # recomputed from $TMPDIR on every invocation. Comparing against that path
+    # makes a run started under one TMPDIR undiscardable under another, and each
+    # subcommand is a separate process for an agent, so the two need not agree.
+    # A shape check also survives /var versus /private/var on macOS for free.
+    # require_run_dir has already demanded both marker files, so a directory that
+    # merely borrows the naming cannot reach the removal below.
+    local canon_run parent
     canon_run=$(cd "$run_dir" 2>/dev/null && pwd -P) || die 65 "not a run directory: $run_dir"
+    parent="${canon_run%/*}"
 
-    [ "${canon_run%/*}" = "$canon_root" ] || \
-        die 65 "refusing to remove a path that is not a direct child of $canon_root: $canon_run"
     case "${canon_run##*/}" in
         run.*) ;;
         *) die 65 "refusing to remove a directory this runner did not create: $canon_run" ;;
     esac
+    [ "${parent##*/}" = "$RUNS_DIR_NAME" ] || \
+        die 65 "refusing to remove a path outside a $RUNS_DIR_NAME directory: $canon_run"
 
     rm -rf "$canon_run"
     [ ! -d "$canon_run" ] || die 65 "run directory still present after removal: $canon_run"
@@ -895,11 +1146,12 @@ cmd_discard() {
 }
 
 case "${1:-}" in
-    start)   shift; cmd_start "$@" ;;
-    status)  shift; cmd_status "$@" ;;
-    wait)    shift; cmd_wait "$@" ;;
-    discard) shift; cmd_discard "$@" ;;
-    *)       usage ;;
+    start)     shift; cmd_start "$@" ;;
+    status)    shift; cmd_status "$@" ;;
+    wait)      shift; cmd_wait "$@" ;;
+    discard)   shift; cmd_discard "$@" ;;
+    -h|--help) usage ;;
+    *)         usage_error ;;
 esac
 ```
 
