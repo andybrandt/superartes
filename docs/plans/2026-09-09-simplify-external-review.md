@@ -913,8 +913,12 @@ launch() {
     # `setsid` puts the job in a new session and process group. It ships in
     # util-linux and is therefore ABSENT on stock macOS, so it must be guarded:
     # calling it unconditionally makes every macOS run fail. The fallback runs the
-    # job inside a subshell with `set -m` (job control), which gives it its own
-    # process group — the portable approximation the managed adapter already uses.
+    # job inside a subshell with `set -o monitor` (job control), which gives it
+    # its own process group -- the portable approximation the managed adapter
+    # already uses. The long spelling is deliberate: the short spelling of this
+    # same builtin collides token-for-token with codex's short model flag, and
+    # the plugin validator scans these runners for that flag with no exception
+    # carved out. Keep the long form here.
     #
     # The launcher's own stderr goes to `launch-err`, not /dev/null. Swallowing it
     # turns "the reviewer never started" into a silent, permanent wait. A FILE is
@@ -947,7 +951,7 @@ launch() {
             </dev/null >/dev/null 2>"$run_dir/launch-err" &
     else
         (
-            set -m
+            set -o monitor
             nohup sh -c "$inner" _ "$run_dir" "$work_dir" "$stdin_file" "$@" \
                 </dev/null >/dev/null 2>"$run_dir/launch-err" &
         )
@@ -3217,11 +3221,25 @@ Replace it with:
     )
 
     # The Claude-Code-controller runners must honour the same rule: the user's own
-    # configuration chooses the model, never this repository.
+    # configuration chooses the model, never this repository. Unlike the POSIX
+    # adapter check above, this scans the whole runner file rather than a
+    # profile-builder slice, so a model flag must stay out of the runners'
+    # comments as well as their code.
+    #
+    # A model can be pinned four ways, so all four are rejected: the long flag,
+    # the short flag, a `-c model=` / `--config model=` override, and `--profile`,
+    # which selects a config profile that may itself set a model. `set -o monitor`
+    # in invoke-codex.sh is the long spelling of the job-control builtin precisely
+    # so that the short-flag scan below needs no exception.
+    model_config_override = re.compile(
+        r"(?<![\w-])(?:-c|--config)[=\s]+[\'\"]?model\b\s*="
+    )
+
     for runner_name in ("invoke-codex.sh", "invoke-codex.ps1"):
-        runner = (
-            REPO_ROOT / "skills" / "external-review" / runner_name
-        ).read_text(encoding="utf-8")
+        runner_path = REPO_ROOT / "skills" / "external-review" / runner_name
+        require(runner_path.is_file(), f"Missing {runner_name}")
+
+        runner = runner_path.read_text(encoding="utf-8")
         require(
             "--model" not in runner,
             f"{runner_name} must not pass --model",
@@ -3230,10 +3248,21 @@ Replace it with:
             re.search(r"(?<![\w-])-m(?![\w-])", runner) is None,
             f"{runner_name} must not pass -m",
         )
+        require(
+            model_config_override.search(runner) is None,
+            f"{runner_name} must not pin a model with -c/--config model=",
+        )
+        require(
+            "--profile" not in runner,
+            f"{runner_name} must not pass --profile",
+        )
 ```
 
-This scan covers the whole runner file rather than a profile-builder slice, so keep
-a bare `-m` out of the runners' comments as well as their code.
+This scan covers the whole runner file rather than a profile-builder slice. That
+collides with the shell builtin `set -m`, so `invoke-codex.sh` uses the identical long
+form `set -o monitor` instead and the pattern needs **no exception** — do not add one.
+Keep the short spelling out of the runners' comments too; it will be caught there, as
+it was during implementation.
 
 - [ ] **Step 2: Run the validator before deleting anything**
 

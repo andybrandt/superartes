@@ -1,17 +1,29 @@
 # Invoking Managed Reviewers
 
-## Select the platform adapter
+This reference describes the **managed adapter**, `invoke-reviewer.sh`. It exists
+for one situation: a **Codex controller** obtaining a review from Claude. Codex's
+command runner reaps every descendant when a one-shot elevated call ends, including
+a supervisor detached with `nohup` and `setsid`, so that direction needs a
+supervisor, process-identity validation and a lock registry.
 
-- Native Windows: `invoke-reviewer.ps1`
-- Linux, macOS, and WSL (POSIX): `invoke-reviewer.sh`
+A **Claude Code controller does not need any of it** and must not use it. Claude
+Code leaves background descendants alone, so it uses the small background runner
+described in `superartes:external-review`'s own Invocation section
+(`invoke-codex.sh`, or `invoke-codex.ps1` on native Windows).
 
-Resolve the adapter from the absolute directory containing this reference and
-its sibling `SKILL.md`; never resolve it relative to the user's project. Under
-Claude Code, `${CLAUDE_PLUGIN_ROOT}/skills/external-review` is the preferred
-root when available. Under Codex, use the absolute skill source directory
-provided by the skill catalog. Quote every resolved path.
+**Platform support:** the managed adapter is POSIX only — Linux, macOS and WSL. There
+is no native-Windows adapter, so superartes does not *currently* support this direction
+on native Windows. That is a project support decision, not a Codex limitation: Codex
+itself runs natively on Windows, and a route that avoids POSIX process plumbing
+altogether is under investigation. Until one lands, tell the user this direction is
+unavailable on native Windows and offer WSL, rather than falling back to a same-model
+review without saying so.
 
-When using this for the first time in a session run the selected adapter's `check PROFILE` before model-backed work.
+Resolve the adapter from the absolute directory containing this reference and its
+sibling `SKILL.md`; never resolve it relative to the user's project. Under Codex,
+use the absolute skill source directory provided by the skill catalog. Quote every
+resolved path. Run the adapter's `check PROFILE` once per session before
+model-backed work.
 
 ## Codex controller process hosting
 
@@ -61,16 +73,14 @@ The `uncommitted` scope has no value, so its scope-value field is empty and the
 key ends with a trailing `|`.
 
 Canonicalize a path with `cd "$DIR" && pwd -P` or `realpath -e`. Encode one
-field on POSIX hosts with:
+field with:
 
 ```bash
 printf '%s' "$FIELD" | base64 | tr -d '\n' | tr '+/' '-_' | tr -d '='
 ```
 
 Sort document paths with `LC_ALL=C sort` before encoding them; another locale may
-not sort by UTF-8 byte sequence. On Windows, use
-`[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($Field))`, then replace
-`+` with `-` and `/` with `_`, and strip trailing `=`.
+not sort by UTF-8 byte sequence.
 
 ## Normal lifecycle
 
@@ -130,21 +140,9 @@ POSIX forms, where `$ADAPTER` is the quoted absolute script path:
 "$ADAPTER" cleanup "$RUN_DIR"
 ```
 
-Native Windows forms, where `$Adapter` is the literal absolute `.ps1` path:
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter start claude-prompt $ReviewKey $WorkDir $PromptFile
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter start codex-prompt $ReviewKey $WorkDir $PromptFile
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter start codex-review $ReviewKey $WorkDir uncommitted
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter start codex-review $ReviewKey $WorkDir base $BaseRef
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter start codex-review $ReviewKey $WorkDir commit $CommitSha
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter start --after-terminal $PreviousRun claude-prompt $ReviewKey $WorkDir $PromptFile
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File $Adapter wait $RunDir $TimeoutSeconds
-```
-
 For a linked retry, place `--after-terminal "$PREVIOUS_RUN"` immediately after
-`start` on both adapters, as shown. Use `status`, `cancel`, and `cleanup` with
-the same final `$RunDir` argument.
+`start`, as shown. Use `status`, `cancel`, and `cleanup` with the same final
+`$RUN_DIR` argument.
 
 Exit codes are: 0 terminal/accepted operation, 2 missing CLI capability, 3
 still running, 4 indeterminate, 12 outstanding matching review, 64 usage, 65
@@ -174,10 +172,6 @@ For `indeterminate`, inspect every artifact and process identity. Use substantiv
 feedback if present. Otherwise record the diagnostic and consider at most one
 degraded fallback only after the original reviewer is confirmed absent. Never
 retry immediately.
-
-On native Windows, Claude Code does not provide OS-level sandboxing. Safe mode,
-`dontAsk`, the restricted tool allow-list, and the review-only prompt are the
-primary safeguards. Inspect `reviewer-log` for permission denials.
 
 An ownerless registry lock is not auto-deleted. Inspect
 `.registry-lock/owner-pid` and `owner-start`; only after proving no owner exists,

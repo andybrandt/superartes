@@ -90,8 +90,12 @@ launch() {
     # `setsid` puts the job in a new session and process group. It ships in
     # util-linux and is therefore ABSENT on stock macOS, so it must be guarded:
     # calling it unconditionally makes every macOS run fail. The fallback runs the
-    # job inside a subshell with `set -m` (job control), which gives it its own
-    # process group — the portable approximation the managed adapter already uses.
+    # job inside a subshell with `set -o monitor` (job control), which gives it
+    # its own process group -- the portable approximation the managed adapter
+    # already uses. The long spelling is deliberate: the short spelling of this
+    # same builtin collides token-for-token with codex's short model flag, and
+    # the plugin validator scans these runners for that flag with no exception
+    # carved out. Keep the long form here.
     #
     # The launcher's own stderr goes to `launch-err`, not /dev/null. Swallowing it
     # turns "the reviewer never started" into a silent, permanent wait. A FILE is
@@ -124,7 +128,7 @@ launch() {
             </dev/null >/dev/null 2>"$run_dir/launch-err" &
     else
         (
-            set -m
+            set -o monitor
             nohup sh -c "$inner" _ "$run_dir" "$work_dir" "$stdin_file" "$@" \
                 </dev/null >/dev/null 2>"$run_dir/launch-err" &
         )

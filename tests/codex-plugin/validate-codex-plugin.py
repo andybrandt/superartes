@@ -217,9 +217,10 @@ def validate_external_code_review_skill() -> None:
         "external-code-review must stop for both empty and invalid scopes",
     )
 
-    shell_adapter = (
-        REPO_ROOT / "skills" / "external-review" / "invoke-reviewer.sh"
-    ).read_text(encoding="utf-8")
+    shell_adapter_path = REPO_ROOT / "skills" / "external-review" / "invoke-reviewer.sh"
+    require(shell_adapter_path.is_file(), "Missing invoke-reviewer.sh")
+
+    shell_adapter = shell_adapter_path.read_text(encoding="utf-8")
     shell_profile_builder = shell_adapter.split("run_profile() {", 1)[1].split(
         "\nsupervise_run() {", 1
     )[0]
@@ -228,24 +229,52 @@ def validate_external_code_review_skill() -> None:
         for block in shell_profile_builder.split("reviewer_gate ")[1:]
     )
 
-    powershell_adapter = (
-        REPO_ROOT / "skills" / "external-review" / "invoke-reviewer.ps1"
-    ).read_text(encoding="utf-8")
-    powershell_profile_builder = powershell_adapter.split(
-        "function Invoke-RunReviewer {", 1
-    )[1].split("\nfunction Wait-ForCancellationTerminalState {", 1)[0]
+    # The managed adapter is POSIX-only; native Windows is unsupported for the
+    # Codex-controller direction, so there is no PowerShell adapter to inspect.
+    require(
+        "--model" not in shell_reviewer_commands,
+        "POSIX reviewer profiles must not pass --model",
+    )
+    require(
+        re.search(r"(?<![\w-])-m(?![\w-])", shell_reviewer_commands) is None,
+        "POSIX reviewer profiles must not pass -m",
+    )
 
-    for adapter_name, profile_builder in (
-        ("POSIX", shell_reviewer_commands),
-        ("PowerShell", powershell_profile_builder),
-    ):
+    # The Claude-Code-controller runners must honour the same rule: the user's own
+    # configuration chooses the model, never this repository. Unlike the POSIX
+    # adapter check above, this scans the whole runner file rather than a
+    # profile-builder slice, so a model flag must stay out of the runners'
+    # comments as well as their code.
+    #
+    # A model can be pinned four ways, so all four are rejected: the long flag,
+    # the short flag, a `-c model=` / `--config model=` override, and `--profile`,
+    # which selects a config profile that may itself set a model. `set -o monitor`
+    # in invoke-codex.sh is the long spelling of the job-control builtin precisely
+    # so that the short-flag scan below needs no exception.
+    model_config_override = re.compile(
+        r"(?<![\w-])(?:-c|--config)[=\s]+[\'\"]?model\b\s*="
+    )
+
+    for runner_name in ("invoke-codex.sh", "invoke-codex.ps1"):
+        runner_path = REPO_ROOT / "skills" / "external-review" / runner_name
+        require(runner_path.is_file(), f"Missing {runner_name}")
+
+        runner = runner_path.read_text(encoding="utf-8")
         require(
-            "--model" not in profile_builder,
-            f"{adapter_name} reviewer profiles must not pass --model",
+            "--model" not in runner,
+            f"{runner_name} must not pass --model",
         )
         require(
-            re.search(r"(?<![\w-])-m(?![\w-])", profile_builder) is None,
-            f"{adapter_name} reviewer profiles must not pass -m",
+            re.search(r"(?<![\w-])-m(?![\w-])", runner) is None,
+            f"{runner_name} must not pass -m",
+        )
+        require(
+            model_config_override.search(runner) is None,
+            f"{runner_name} must not pin a model with -c/--config model=",
+        )
+        require(
+            "--profile" not in runner,
+            f"{runner_name} must not pass --profile",
         )
 
 

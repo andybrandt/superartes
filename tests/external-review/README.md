@@ -1,13 +1,21 @@
 # External Review Tests
 
-The deterministic POSIX contract suite is the currently verified baseline:
+Three deterministic suites cover the two external-review directions. All of them
+use fake CLIs, so none needs credentials or network access.
 
-```bash
-bash tests/external-review/run-tests.sh
-```
+| Suite | Tests | Covers |
+|---|---|---|
+| `bash tests/external-review/run-tests.sh` | 420 | `invoke-reviewer.sh`, the managed adapter — a **Codex controller** obtaining a review from Claude |
+| `bash tests/external-review/test-invoke-codex.sh` | 77 | `invoke-codex.sh`, the background runner — a **Claude Code controller** obtaining a review from Codex |
+| `pwsh -NoProfile -File tests/external-review/Test-InvokeCodex.ps1` | 117 | `invoke-codex.ps1`, the Windows sibling of that runner |
 
-The POSIX suite uses fake CLIs, so it needs no credentials or network access.
-The pre-implementation pressure evidence is in
+The first two run on their target platform. The third does not:
+`Test-InvokeCodex.ps1` is exercised only under PowerShell 7 on Linux and **has
+never been run on native Windows**. There is also no managed adapter for native
+Windows at all — that support was withdrawn rather than deferred. The
+sections below say so in detail.
+
+The pre-implementation pressure evidence for the managed adapter is in
 [pressure-scenarios.md](pressure-scenarios.md). `indeterminate` is computed
 only by `status` and `wait`. It is never persisted over the last reliable
 state.
@@ -84,54 +92,229 @@ implementation history. Normal Claude-controller behavior is a separate
 interactive manual plugin check. Headless `claude -p` output is not evidence
 for that behavior and is not part of the current validation gate.
 
-## Deferred native Windows PowerShell 5.1 checkpoint
+## Native Windows is not currently supported for the Codex-controller direction
 
-Run these commands from Windows PowerShell 5.1 on native Windows. Do not use
-Git Bash, PowerShell 7, or WSL. The first command is the native RED mechanism:
-it must report only that the runner is missing and return nonzero before the
-suite creates any fixtures. The second command runs the real deterministic
-suite with fake CLIs. Open Windows PowerShell 5.1 in the repository root and
-run the block exactly as written.
+There is no PowerShell managed adapter and no native Windows suite. The 1,728-line
+adapter and its 2,396 lines of tests were removed because they had never been executed on
+any machine: the maintainer cannot read PowerShell, and Windows PowerShell 5.1 on the
+available Windows host is broken, so the code could be neither reviewed nor run. Shipping
+that much unverified code was a liability rather than a feature.
 
-```powershell
-& powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\external-review\Run-Tests.ps1 -RunnerPath C:\definitely-missing\invoke-reviewer.ps1
-if ($LASTEXITCODE -eq 0) { throw 'Missing-runner RED unexpectedly passed' }
-& powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\external-review\Run-Tests.ps1 -RunnerPath .\skills\external-review\invoke-reviewer.ps1
-if ($LASTEXITCODE -ne 0) { throw "Deterministic suite failed with $LASTEXITCODE" }
-```
+**This is a superartes support decision, not a Codex limitation.** Codex runs natively on
+Windows. The adapter was Windows-specific only because it reimplemented POSIX process
+detachment; an external Codex review (2026-09-09) demonstrated, on one host, that an
+approved foreground command survives tool-call yields without any detachment at all,
+which would remove the platform-specific part entirely. That result is a single-host
+demonstration rather than a general guarantee, and only Codex can verify its own process
+hosting, so it is the subject of follow-up work owned by a Codex session.
 
-PowerShell 7 is deliberately unsupported. On development hosts where `pwsh` is
-available, the focused negative-host test verifies that both the adapter and
-the native suite reject it before dispatch or fixture creation:
+Until it lands, superartes supports this direction on Linux, macOS and WSL. On native
+Windows, tell the user it is unavailable and offer WSL, rather than quietly substituting
+a same-model review.
+
+This limitation does not affect the **Claude Code controller**, which reaches Codex
+through `skills/external-review/invoke-codex.sh` on POSIX hosts and
+`invoke-codex.ps1` on native Windows. Those runners have their own deterministic
+suites:
 
 ```bash
-bash tests/external-review/test-powershell-version-gate.sh
+bash tests/external-review/test-invoke-codex.sh
+pwsh -NoProfile -File tests/external-review/Test-InvokeCodex.ps1
 ```
 
-Native Windows verification is explicitly deferred and has not yet been run.
-Andy allowed later feature work to proceed without claiming native Windows
-support is verified. When this gate resumes, record the checkpoint here
-without replacing the placeholders until it has actually completed:
+Both use a fake `codex` and need no credentials or network.
 
-- Commit SHA: `<not yet recorded>`
-- Windows version: `<not yet recorded>`
-- PowerShell version and edition: `<not yet recorded>`
-- Deliberately missing runner RED outcome: `<not yet recorded>`
-- Deterministic native parity suite outcome: `<not yet recorded>`
-- Parent/child cancellation and cleanup outcomes: `<not yet recorded>`
+`invoke-codex.ps1` has itself never run on native Windows either — it is written to
+the Windows PowerShell 5.1 subset and exercised only under PowerShell 7 on Linux — so
+it is worth being exact about why it is kept where the adapter was not. The deleted
+adapter had **zero executions on any machine, ever**, and nobody who could read it had
+run it; there was no way in to check any part of it. The runner carries **117
+assertions that execute on every run** (113 where the host cannot create a symbolic
+link) and has been through three rounds of review. It is **additive and optional**:
+nothing else depends on it, and when it fails a Windows user loses a Codex review,
+loudly, at `start`, and loses nothing else. And what remains unverified in it is a
+short enumerable list — `PATHEXT`, `cmd.exe` dispatch, execution policy, sharing
+violations, and `TMP`/`TEMP` resolution — which the last section of this file turns
+into specific checks a Windows user can run in an afternoon. That is the distinction
+being drawn: a bounded, listed, testable gap is not the same liability as an unbounded
+unread one.
 
-The deterministic Windows suite supplies fake `claude.cmd` and `codex.cmd`
-launchers and needs no credentials or network. `Test-ClaudePromptLifecycle`
-parses the fake launcher's JSON argument capture and requires this exact
-allowed-tools value as one intact argument:
+## How the two invoke-codex runners differ
 
-```text
-Read,Glob,Grep,PowerShell(git diff *),PowerShell(git status *),PowerShell(git rev-parse *),PowerShell(git cat-file *),PowerShell(git show *),PowerShell(git log *)
+**The Windows-side behaviour described here is predicted from the code and from Win32
+semantics, not observed.** Only the POSIX side and the platform-independent logic have
+actually been executed. Every claim below about sharing violations, `cmd.exe` dispatch,
+PowerShell 5.1 symlink resolution and the extra exit-65 case is a reasoned expectation
+awaiting the checks in the final section of this file.
+
+The two runners present the same subcommands, the same exit codes and the same run-directory
+contract, and a controller can drive either without knowing which it has. Underneath, a
+detached POSIX shell job and a detached PowerShell process are not the same animal, and the
+differences below are deliberate rather than accidental.
+
+**The run directory holds more on Windows.** The shell runner passes its argument vector
+straight to the detached child inside a single `sh -c`, so the child needs nothing written
+down. The PowerShell worker is a separately launched process that must read back what it was
+asked to do, so its run directory also carries `stdin`, `argv.json`, `codex-path` and
+`null-stdin`. It also carries `worker-log` and `worker-stderr`, which are the parent's redirect
+targets, and `worker-err`, which is the counterpart of the shell runner's `launch-err`. Status
+reports it under the same `LAUNCH_ERROR` key on both.
+
+**`worker-log` and `worker-stderr` are always empty, and that is correct.** PowerShell's
+`Start-Process` copies a redirected stream through the process that started it, and that
+process exits immediately — detaching the worker is the whole point. So nothing the worker
+prints is ever copied into those files. They exist because redirecting the worker's three
+streams is what stops the caller's shell tool from blocking for the entire review. Everything a
+controller needs to read is in `worker-err`, which the worker writes for itself.
+
+**One class of launch failure is invisible on Windows.** If the worker dies before its first
+statement — a missing interpreter, a blocked execution policy, a script that will not parse —
+nothing can report it, because the process that would write the explanation is the one that
+failed to start, and the parent cannot see it either. The shell runner does catch the
+equivalent, in `launch-err`, because there a shell owns the redirection. Closing the gap would
+mean dispatching the worker through `cmd.exe` with its own redirection operators, which cannot
+be verified on the platform this file is developed on.
+
+**Discarding an in-flight run can fail on Windows.** `discard --force` on a run that is still
+going asks the operating system to delete files the worker holds open. On POSIX that is
+routine; on Windows it raises a sharing violation partway through, so the runner reports exit
+65, "run directory still present after removal", where the shell runner reports 0. Discarding a
+finished run behaves identically on both.
+
+**The reviewer's stdin differs by one byte in review mode.** The shell runner hands codex
+`/dev/null` and codex sees nothing at all. The PowerShell runner hands it an empty file, and
+PowerShell's own stdin pump terminates the stream with a newline, so codex sees a single line
+ending. The same pump terminates a prompt the same way in prompt mode. `codex exec review` does
+not read stdin, and a trailing newline on a prompt is harmless, but the two are not
+byte-identical.
+
+**Detachment works differently.** The shell runner uses `nohup setsid`, falling back to a
+`set -m` subshell where `setsid` is absent, and it exposes `SUPERARTES_CODEX_NO_SETSID` so the
+macOS path can be exercised on Linux. The PowerShell runner relies on redirected streams and
+ordinary reparenting; it has no process-group semantics and no equivalent switch.
+
+**codex is resolved at different moments.** The shell runner's detached child looks `codex` up
+by name on `PATH` at the moment it executes. The PowerShell parent resolves it once, with
+`Get-Command -CommandType Application`, and records the absolute path for the worker — which it
+must, because the worker's stream redirects force `CreateProcessW`, and that never consults
+`PATHEXT`. A consequence unique to Windows is that a `codex.cmd` or `codex.bat` (how npm
+installs it) is dispatched through `cmd.exe`; the shell runner has no such layer.
+
+**Symlinked checkouts resolve less thoroughly on Windows PowerShell 5.1.** Both runners record
+a work directory as the path it points at rather than the link. `pwd -P` and PowerShell 7
+resolve the entire chain; 5.1 has no `ResolveLinkTarget` and resolves only the final component,
+leaving an intermediate link in place.
+
+**Two smaller ones.** The PowerShell runner does not tighten permissions on its runs root,
+relying on Windows temp being per-user, whereas the shell runner always sets mode 700. And exit
+65 covers one extra case on Windows — a worker that could not be launched at all — which has no
+shell equivalent, because a backgrounded shell job always starts.
+
+## Verifying invoke-codex.ps1 on a native Windows host
+
+Nothing below has been run on Windows. Everything in `invoke-codex.ps1` was developed and
+tested under PowerShell 7 on Linux, which exercises the logic but cannot reach `PATHEXT`,
+`cmd.exe` dispatch, execution policy, or the Win32 rules for temp directories and open files.
+If you have a Windows machine, these are the checks worth doing, in this order. Run every
+block from the repository root in Windows PowerShell.
+
+**Start with the suite.**
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests\external-review\Test-InvokeCodex.ps1
 ```
 
-No credentialed live-profile procedure is part of this feature's current
-native Windows validation gate. If a real-model Windows check is separately
-resumed and authorized later, a Codex controller may exercise only
-`claude-prompt` against a disposable fixture. Normal Claude-controller
-behavior must instead be checked in an interactive Claude Code plugin session;
-`claude -p` is not evidence for that controller path.
+Expect `117 passed, 0 failed` in a symlink-capable session — Developer Mode or elevation —
+and otherwise `113 passed, 0 failed` together with one `SKIP:` line, because the symlinked
+work-directory test needs to create a link and announces itself rather than passing quietly.
+Those are the only two acceptable outcomes: a count of 113 *without* the `SKIP:` line means
+four tests vanished rather than skipped, and is a failure however green it looks. This step
+needs no credentials, no network and no model tokens — it supplies its own fake `codex`.
+
+**Everything after this point spends money and sends your code to OpenAI.** Each remaining
+step starts a real `codex exec review`: it requires Codex authentication, consumes model
+tokens, and uploads the diff of whatever repository you point it at. Do not point it at a
+real project. Create a disposable fixture first — a scratch `git init` with one committed
+file and one uncommitted edit is enough — and use that path everywhere `C:\fixture` appears
+below.
+
+**Then confirm the null device is really gone.** The original Windows-only bug was that
+`\\.\NUL` is a DOS device rather than a file, and `Start-Process` validates every redirect path
+with `File.Exists`, so every `start` threw before it printed anything. Run one for real:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File skills\external-review\invoke-codex.ps1 start review C:\fixture uncommitted
+```
+
+It must print a `RUN_DIR=` line and exit 0 — never exit 1 with a redirection error. Inside that
+directory, `null-stdin` must exist and be zero bytes. Poll it with:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File skills\external-review\invoke-codex.ps1 status <RUN_DIR>
+```
+
+until it reports `STATE=done`; the exit code must be codex's own, not 127.
+
+**Then check the npm install route,** which is the one the Codex documentation recommends and
+the one that could not work before. With codex installed that way, `where codex` shows a
+`codex.cmd` alongside a `codex.ps1`. Start a run and look at three files: `codex-path` must
+contain the full path to the `.cmd`, not a bare name; `err-log` must not mention "not a valid
+Win32 application" or error 193; and `exit-code` must hold codex's real exit status. Repeat the
+run once with a temp directory whose name contains a space —
+
+```powershell
+$spaced = 'C:\Temp with space'
+New-Item -ItemType Directory -Force -Path $spaced | Out-Null
+$env:TMP = $spaced
+$env:TEMP = $spaced
+```
+
+— because that is what exercises the `cmd /d /s /c` quoting, and a user account named
+"John Smith" produces it by default.
+
+**Check that the test suite really isolates itself.** Windows resolves a temporary directory by
+consulting `TMP` first and only then `TEMP`, which is why the suite sets both. To see it for
+yourself, point them at two different directories and start a run. Create them first —
+`GetTempPath` returns the configured path without creating it:
+
+```powershell
+$probeA = Join-Path $env:LOCALAPPDATA 'Temp\probe-a'
+$probeB = Join-Path $env:LOCALAPPDATA 'Temp\probe-b'
+New-Item -ItemType Directory -Force -Path $probeA, $probeB | Out-Null
+$env:TMP = $probeA
+$env:TEMP = $probeB
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File skills\external-review\invoke-codex.ps1 start review C:\fixture uncommitted
+```
+
+The printed `RUN_DIR` must be under `probe-a`. If it is under `probe-b`, the assumption behind
+the suite's isolation is wrong and the cross-temp discard test is not testing anything.
+
+**Check that the execution-policy bypass reaches child processes.** What is under test is not
+the policy on your machine but whether the bypass propagates: the suite and the runner each
+launch further PowerShell processes, and `-ExecutionPolicy Bypass` applies per process rather
+than being inherited, so every one of those launches has to pass it explicitly. Record the
+effective policy first:
+
+```powershell
+powershell.exe -NoProfile -Command "Get-ExecutionPolicy -List"
+```
+
+Windows clients default to `Restricted` and Windows Server to `RemoteSigned`; either exercises
+the check. What matters is that the effective policy is *not* already `Bypass` or
+`Unrestricted` machine-wide, because then the step proves nothing. With a restrictive policy in
+force, run the suite command from the top of this section again — it must still pass in full. A
+child that failed to inherit the bypass surfaces as a "cannot be loaded because running scripts
+is disabled" error rather than as an ordinary test failure.
+
+**Finally, check that starting a review returns immediately.** On Windows, `Start-Process -Wait`
+waits for an entire process tree through a job object, and no redirect opts out of it — so a
+harness that used it would block for the whole review instead of detaching.
+
+```powershell
+powershell.exe -NoProfile -Command "Measure-Command { & powershell.exe -NoProfile -ExecutionPolicy Bypass -File skills\external-review\invoke-codex.ps1 start review C:\fixture uncommitted }"
+```
+
+That must come back in seconds, not minutes. In the suite, the same property is what these four
+assertions protect: `status of an unfinished run exits 3`, `status names the state honestly`,
+`wait exits 3 when it times out`, and `discard of an unfinished run exits 66`. If a change ever
+makes `start` block, those are the four that will tell you.
