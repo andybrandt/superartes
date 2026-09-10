@@ -3661,12 +3661,40 @@ In `README.md`, replace the two external-review rows of the Optional Dependencie
 with:
 
 ```
-| [Codex CLI](https://developers.openai.com/codex/) | external-review, external-code-review, brainstorming, writing-plans | Independent second-model review when **Claude Code** is the host - design specs and plans (`external-review`) and code changes (`external-code-review`, via `codex exec review`). Linux, macOS, WSL and native Windows. |
+| [Codex CLI](https://developers.openai.com/codex/) | external-review, external-code-review, brainstorming, writing-plans | Independent second-model review when **Claude Code** is the host - design specs and plans (`external-review`) and code changes (`external-code-review`, via `codex exec review`). Linux, macOS and WSL; also native Windows, via a PowerShell runner not yet verified on a native Windows host. |
 | Claude Code CLI | external-review, external-code-review | Independent second-model review when **Codex** is the host, via `claude -p`. Currently Linux, macOS and WSL; native Windows support for this direction is not yet available. |
 ```
 
-Note the wording: *not yet available*, not *unsupported*. Codex runs natively on Windows,
-and the follow-up work may well reach it.
+Note the wording throughout: *not yet available*, never *unsupported*. Codex runs natively
+on Windows, and the follow-up work may well reach it.
+
+Note also what the **Codex** row must NOT say. An earlier draft of this plan ended it
+"Linux, macOS, WSL and native Windows.", flat. That made `README.md` — the file a user
+reads *before* installing — the only surface on the branch asserting native Windows
+without mentioning that `invoke-codex.ps1` has never executed there. Every other surface
+carries the caveat; this one must too.
+
+- [ ] **Step 1b: Correct four other README claims that this change falsified**
+
+None was in the original plan; all were found by reading the file cold as a prospective
+user. Apply each:
+
+- The Optional Dependencies preamble says skills "gracefully fall back when tools are
+  absent", which now reads as "you still get the review". For external review the skill
+  either stops, or produces a same-model result it must label degraded. Change it to:
+  *"They are not required — when a tool is absent a skill either degrades explicitly,
+  saying so, or stops and tells you."*
+- The `external-review` bullet in the skills list says "with Claude subagent fallback".
+  That presents a degraded same-model path as a peer option, and is Claude-Code-only,
+  contradicting the table row above. Rewrite it to name both directions and to call the
+  subagent fallback degraded and consent-gated, matching the `external-code-review`
+  bullet directly beneath it.
+- The Basic Workflow section says external review uses "a Claude subagent if not" in two
+  places. Under a Codex host the degraded fallback is a *Codex* subagent, so this is
+  wrong for half the users. Replace with "the other model family", and describe the
+  fallback once.
+- "How it works" step 8 reads "Other AI model reviews **the plan**" — a copy-paste from
+  step 5. It should read "the code".
 
 - [ ] **Step 2: Mark the superseded design document**
 

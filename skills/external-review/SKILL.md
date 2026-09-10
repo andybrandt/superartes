@@ -87,6 +87,8 @@ On native Windows use `invoke-codex.ps1` with identical subcommands:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "<DIR>\invoke-codex.ps1" start prompt "<work-dir>" "<prompt-file>"
 ```
 
+That runner has not yet been verified on a native Windows host, so report any failure it produces there.
+
 `$DIR` above stands for that resolved skill directory. It is subject to the same
 rule as `RUN_DIR`: a shell variable does not survive to your next call, so either write
 the absolute path literally into every command or re-derive it in the same call that

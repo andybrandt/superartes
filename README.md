@@ -13,7 +13,7 @@ The process is:
 5. Other AI model reviews the plan -> improved PLAN
 6. YOU reviews the plan -> approved PLAN
 7. AI codes (different approaches - most often using subagents), with TDD and regression tests as well as code review at each step -> code
-8. Other AI model reviews the plan -> code reviewed
+8. Other AI model reviews the code -> code reviewed
 9. YOU review the code and approve it to be merged or PR created
 
 ## Installation
@@ -109,9 +109,9 @@ Start a new session and ask for something that should trigger a skill (for examp
 
 The agent walks through a sequence of skills, each triggering automatically at its phase. Spec, plan, and feature branch each sit at known points in the lifecycle:
 
-1. **brainstorming** — Activates when you describe an idea or openly state that you begin brainstorming sessions. The AI will refine your idea / concept through one-question-at-a-time dialogue, explore 2-3 alternative approaches, then present the design in chunks short enough to read. The resulting specification is then written to `docs/specs/` and committed on the **trunk branch** (`main`/`master`). External review (Codex CLI when available, or a Claude subagent if not) and a user review-gate happen before moving on.
+1. **brainstorming** — Activates when you describe an idea or openly state that you begin brainstorming sessions. The AI will refine your idea / concept through one-question-at-a-time dialogue, explore 2-3 alternative approaches, then present the design in chunks short enough to read. The resulting specification is then written to `docs/specs/` and committed on the **trunk branch** (`main`/`master`). External review by the other model family (Codex when you are on Claude Code, Claude when you are on Codex), then a user review-gate, before moving on. If neither is reachable it falls back to a same-model subagent, with your consent and labelled degraded.
 
-2. **writing-plans** — Activates with the approved spec. Breaks the work into bite-sized tasks (2-5 minutes each), each with exact file paths, complete code, and verification steps — clear enough for an enthusiastic junior engineer with poor taste, no judgement, and no project context to follow. The plan is saved to `docs/plans/` and committed **on trunk**, next to the spec. External review by Codex (or a Claude subagent if Codex is not available) and user review-gate again.
+2. **writing-plans** — Activates with the approved spec. Breaks the work into bite-sized tasks (2-5 minutes each), each with exact file paths, complete code, and verification steps — clear enough for an enthusiastic junior engineer with poor taste, no judgement, and no project context to follow. The plan is saved to `docs/plans/` and committed **on trunk**, next to the spec. External review by the other model family and a user review-gate again, with the same degraded fallback.
 
 3. **Execution handoff** — After the plan is approved, you pick one of three execution modes:
    - **Subagent-driven (recommended)** — a fresh subagent implements each task, with two-stage review (spec compliance, then code quality) running after each. All in this session.
@@ -148,7 +148,7 @@ The agent walks through a sequence of skills, each triggering automatically at i
 - **using-feature-branches** - Feature branch isolation
 - **finishing-a-development-branch** - Merge/PR decision workflow
 - **subagent-driven-development** - Fast iteration with two-stage review (spec compliance, then code quality)
-- **external-review** - Independent external document review via [Codex CLI](https://developers.openai.com/codex/) with Claude subagent fallback
+- **external-review** - Independent external document review of specs and plans: Claude Code hosts invoke [Codex CLI](https://developers.openai.com/codex/); Codex hosts invoke Claude Code with `claude -p`. Falls back to a same-model subagent only with your consent, labelled degraded
 - **external-code-review** - Independent external review of *code changes*: Claude Code hosts invoke [Codex CLI](https://developers.openai.com/codex/)'s `codex exec review`; Codex hosts invoke Claude Code headlessly with `claude -p`
 - **commit-message** - Consistent commit message formatting
 
@@ -158,13 +158,13 @@ The agent walks through a sequence of skills, each triggering automatically at i
 
 ## Optional Dependencies
 
-Some skills integrate with external tools when available. They are not required — skills gracefully fall back when tools are absent.
+Some skills integrate with external tools when available. They are not required — when a tool is absent a skill either degrades explicitly, saying so, or stops and tells you.
 
 | Tool | Skill | Purpose |
 |------|-------|---------|
 | [Google Stitch MCP](https://stitch.withgoogle.com/docs/mcp/) | using-stitch, brainstorming | AI-powered UI/UX design generation, iteration, and preview |
-| [Codex CLI](https://developers.openai.com/codex/) | external-review, external-code-review, brainstorming, writing-plans | Independent second-model review - design specs and plans (`external-review`) and code changes when Claude Code is the host (`external-code-review`, via `codex exec review`) |
-| Claude Code CLI | external-code-review | Independent second-model review of code changes when Codex is the host, via `claude -p` |
+| [Codex CLI](https://developers.openai.com/codex/) | external-review, external-code-review, brainstorming, writing-plans | Independent second-model review when **Claude Code** is the host - design specs and plans (`external-review`) and code changes (`external-code-review`, via `codex exec review`). Linux, macOS and WSL; also native Windows, via a PowerShell runner not yet verified on a native Windows host. |
+| Claude Code CLI | external-review, external-code-review | Independent second-model review when **Codex** is the host, via `claude -p`. Currently Linux, macOS and WSL; native Windows support for this direction is not yet available. |
 
 ## Philosophy
 

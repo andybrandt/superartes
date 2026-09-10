@@ -1,3 +1,12 @@
+> **Partly superseded (2026-09-09).** The reviewer-independence model still stands. Three
+> decisions do not: a Claude Code controller no longer uses the managed adapter (it uses
+> the background runner in `skills/external-review/invoke-codex.sh`); native Windows
+> support for the Codex-controller direction was removed unbuilt; and the claim that the
+> managed lifecycle is *required* to survive descendant teardown is wrong — keeping the
+> enclosing execution alive is what survives it, and the lifecycle machinery buys
+> duplicate prevention, cancellation and recovery instead. See
+> `docs/plans/2026-09-09-simplify-external-review.md`.
+
 # Universal External Review Design
 
 ## Overview
