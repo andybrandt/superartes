@@ -39,6 +39,30 @@ For local development/testing without pushing to GitHub:
 claude --plugin-dir /path/to/superartes
 ```
 
+#### Recommended configuration
+
+Superartes skills track multi-step work on a visible checklist. On current Claude models
+(Opus 4.8, Sonnet 5, Fable 5, Mythos 5 and later) Claude Code leaves the task-tracking
+tools out of sessions unless you opt in — those models handle multi-step work without a
+written list, so the list is there for **you**, not for the model. Without it, skills
+fall back to a plain Markdown checklist you never see.
+
+Add this to the `env` block of `~/.claude/settings.json`:
+
+```json
+{
+  "env": {
+    "CLAUDE_CODE_ENABLE_TODO_TOOLS": "1"
+  }
+}
+```
+
+Claude Code picks the change up without a restart. `CLAUDE_CODE_ENABLE_TASKS` is a
+*different* switch — it chooses between the `Task*` family and `TodoWrite` on models that
+provide them by default, and does nothing on the models listed above. See
+[Track todos](https://code.claude.com/docs/en/agent-sdk/todo-tracking) for the underlying
+behaviour.
+
 ### Codex
 
 Register this repository as a Codex plugin marketplace:

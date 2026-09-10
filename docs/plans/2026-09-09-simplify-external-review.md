@@ -3456,7 +3456,12 @@ prudent one. The replacement text below reorders on that basis.
 **Hard constraint:** `hooks/session-start` reads this SKILL.md at runtime, JSON-escapes
 it by hand, and injects it into **every** conversation on every supported platform. The
 Platform Adaptation section is 151 words today and must not grow. The replacement below
-is 150.
+measures **149** by the same command.
+
+Measure it yourself rather than trusting that number. An earlier draft of this plan
+claimed 150 for a version that actually measured 191 — the text was revised after being
+counted, and the stale figure was carried forward. Step 1 and Step 3 exist precisely so
+the claim cannot outlive the text it described.
 
 - [ ] **Step 1: Record the current size, so the constraint is checked and not assumed**
 
@@ -3475,23 +3480,22 @@ up to (but not including) `# Using Skills` with:
 ## Platform Adaptation
 
 Skills name capabilities, not tools. When a skill says **task-list tool**, use whatever
-visible, user-facing checklist the harness exposes — `TaskCreate`/`TaskUpdate`/`TaskList`,
-`TodoWrite`, `update_plan`, `write_todos` or another equivalent. Discover it at runtime
-instead of assuming a name; `references/codex-tools.md` lists Codex equivalents.
+visible, user-facing checklist the harness exposes: `TaskCreate`/`TaskUpdate`/`TaskList`,
+`TodoWrite`, `update_plan`, `write_todos` or equivalent. Discover it at runtime;
+`references/codex-tools.md` lists Codex equivalents.
 
 The checklist exists so the **user** can watch progress. If none is exposed, prefer what
-the user will actually see:
+the user will see:
 
-1. **It may be switched off, not missing.** In Claude Code, current models omit these
-   tools unless `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` is set in the `env` block of
-   `~/.claude/settings.json`; mention it once and carry on if the user declines. Other
-   harnesses gate differently — Codex's `update_plan` is refused in Plan mode — so
-   discover your own runtime's rule rather than assuming this one.
-2. **A connected MCP tracker** (Asana, JIRA): ask where the items go, create them, and
-   mark them completed as you finish — never leave them open.
-3. **A checklist written into your reply**, kept updated as you go. The user sees it.
-4. **A Markdown file outside the working tree** — scratchpad or temp dir, never the
-   project folder. Last resort: nobody watches a file.
+1. **Switched off, not missing.** In Claude Code, current models omit these tools unless
+   `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` is in the `env` block of `~/.claude/settings.json`;
+   mention it once, carry on if declined. Other harnesses gate differently (Codex refuses
+   `update_plan` in Plan mode), so learn your own runtime's rule.
+2. **A connected MCP tracker** (Asana, JIRA): ask where items go, create them, close them
+   as you finish.
+3. **A checklist in your reply**, re-posted as items complete.
+4. **A Markdown file outside the working tree**, never the project folder. Last resort:
+   nobody watches a file.
 `````
 
 - [ ] **Step 3: Verify the section did not grow**
@@ -3503,6 +3507,29 @@ sed -n '/^## Platform Adaptation/,/^# Using Skills/p' skills/using-superartes/SK
 Expected: **no more than the 151 recorded in Step 1**. That `sed` range is inclusive of
 the two heading lines, so compare it against Step 1's number from the same command rather
 than against the section's own word count — the two differ by a handful of words.
+
+- [ ] **Step 3b: Bring the flowchart in the same file into line**
+
+The DOT flowchart lower in `skills/using-superartes/SKILL.md` is injected alongside the
+prose and still encodes the old chain. Its terminal node reads
+`Keep temporary Markdown checklist\n(clean up, never commit)` — an **in-tree** file,
+which the new prose forbids, and there is no node for the reply checklist at all. Both
+are fixed by renaming that one node rather than adding any, since every node costs
+context on every session:
+
+```
+"Post the checklist in your reply,\nre-posting as items complete"
+```
+
+Rename it in its declaration and in both edges that reference it. Then give the opt-in
+rung a presence without a new node, by relabelling one edge:
+
+```
+"Task-list tool available?" -> "User task tracker connected?" [label="no: mention\nthe opt-in once"];
+```
+
+Re-render afterwards:
+`awk '/^```dot$/{d=1;next} /^```$/{d=0} d' skills/using-superartes/SKILL.md | dot -Tsvg -o /dev/null`
 
 - [ ] **Step 4: Verify the session-start hook still emits valid JSON**
 

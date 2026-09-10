@@ -33,13 +33,23 @@ If CLAUDE.md or AGENTS.md says "don't use TDD" and a skill says "always use TDD,
 
 ## Platform Adaptation
 
-Skills name platform capabilities where possible, use generic language when not. When a skill says **task-list tool**, use whatever visible, user-facing checklist or task tracking capability the current harness exposes. It may be `TodoWrite`, `TaskCreate`/`TaskUpdate`/`TaskList`, `update_plan`, `write_todos`, `todowrite`, or another equivalent. Discover the available tool at runtime instead of assuming a name. 
+Skills name capabilities, not tools. When a skill says **task-list tool**, use whatever
+visible, user-facing checklist the harness exposes: `TaskCreate`/`TaskUpdate`/`TaskList`,
+`TodoWrite`, `update_plan`, `write_todos` or equivalent. Discover it at runtime;
+`references/codex-tools.md` lists Codex equivalents.
 
-For other concrete tool names, see `references/codex-tools.md` (Codex) for known equivalents. 
+The checklist exists so the **user** can watch progress. If none is exposed, prefer what
+the user will see:
 
-If no such tool exists, check if user has task tracking tool connected via MCP (like Asana, JIRA etc.). If such a tool is available use it to create temporary tasks, ask the user where to place them and inform the user of their existence. 
-
-As a last  resort, if no other option is available, keep the checklist in a temporary Markdown file in the main project directory. Remember to clean-up such temporary file after work is done and never commit it. 
+1. **Switched off, not missing.** In Claude Code, current models omit these tools unless
+   `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` is in the `env` block of `~/.claude/settings.json`;
+   mention it once, carry on if declined. Other harnesses gate differently (Codex refuses
+   `update_plan` in Plan mode), so learn your own runtime's rule.
+2. **A connected MCP tracker** (Asana, JIRA): ask where items go, create them, close them
+   as you finish.
+3. **A checklist in your reply**, re-posted as items complete.
+4. **A Markdown file outside the working tree**, never the project folder. Last resort:
+   nobody watches a file.
 
 # Using Skills
 
@@ -68,7 +78,7 @@ digraph skill_flow {
     "User task tracker connected?" [shape=diamond];
     "Ask user where to place\ntemporary tasks" [shape=box];
     "Create temporary tasks\nand inform user" [shape=box];
-    "Keep temporary Markdown checklist\n(clean up, never commit)" [shape=box];
+    "Post the checklist in your reply,\nre-posting as items complete" [shape=box];
     "Follow skill exactly" [shape=box];
     "Respond (including clarifications)" [shape=doublecircle];
 
@@ -93,13 +103,13 @@ digraph skill_flow {
     "Has checklist?" -> "Task-list tool available?" [label="yes"];
     "Has checklist?" -> "Follow skill exactly" [label="no"];
     "Task-list tool available?" -> "Create task-list item per checklist item" [label="yes"];
-    "Task-list tool available?" -> "User task tracker connected?" [label="no"];
+    "Task-list tool available?" -> "User task tracker connected?" [label="no: mention\nthe opt-in once"];
     "User task tracker connected?" -> "Ask user where to place\ntemporary tasks" [label="yes"];
-    "User task tracker connected?" -> "Keep temporary Markdown checklist\n(clean up, never commit)" [label="no"];
+    "User task tracker connected?" -> "Post the checklist in your reply,\nre-posting as items complete" [label="no"];
     "Ask user where to place\ntemporary tasks" -> "Create temporary tasks\nand inform user";
     "Create task-list item per checklist item" -> "Follow skill exactly";
     "Create temporary tasks\nand inform user" -> "Follow skill exactly";
-    "Keep temporary Markdown checklist\n(clean up, never commit)" -> "Follow skill exactly";
+    "Post the checklist in your reply,\nre-posting as items complete" -> "Follow skill exactly";
     "Follow skill exactly" -> "Respond (including clarifications)";
 }
 ```

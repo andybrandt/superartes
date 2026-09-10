@@ -4,14 +4,20 @@ Skills mostly use capability names. When a skill names a concrete tool or capabi
 
 | Skill references | Codex equivalent |
 |-----------------|------------------|
-| `Task` tool (dispatch subagent) | `spawn_agent` (see [Named agent dispatch](#named-agent-dispatch)) |
-| Multiple `Task` calls (parallel) | Multiple `spawn_agent` calls |
-| Task returns result | `wait` |
-| Task completes automatically | `close_agent` to free slot |
-| Task-list tool (task tracking) | `update_plan` |
+| Subagent dispatch (`Agent` tool; `Task` in older Claude Code) | `spawn_agent` (see [Named agent dispatch](#named-agent-dispatch)) |
+| Multiple parallel dispatches | Multiple `spawn_agent` calls |
+| Dispatch returns result | `wait` |
+| Dispatch completes automatically | `close_agent` to free slot |
+| Task-list tool (`TaskCreate`/`TaskUpdate`/`TaskList`, `TodoWrite`) | `update_plan` |
 | `Skill` tool (invoke a skill) | Skills load natively — just follow the instructions |
 | `Read`, `Write`, `Edit` (files) | Use your native file tools |
 | `Bash` (run commands) | Use your native shell tools |
+
+> **Name collision.** In current Claude Code, `Task*` names three different things:
+> `TaskCreate`/`TaskGet`/`TaskUpdate`/`TaskList` are the visible checklist,
+> `TaskOutput`/`TaskStop` control background jobs, and subagent dispatch is the `Agent`
+> tool. Older releases called subagent dispatch `Task`. Match the capability a skill
+> describes, not the word "task".
 
 ## Subagent dispatch requires multi-agent support
 
@@ -41,7 +47,7 @@ When a skill says to dispatch a named agent type:
 | Skill instruction | Codex equivalent |
 |-------------------|------------------|
 | `Task tool (superartes:code-reviewer)` | `spawn_agent(agent_type="worker", message=...)` with `code-reviewer.md` content |
-| `Task tool (general-purpose)` with inline prompt | `spawn_agent(message=...)` with the same prompt |
+| A general-purpose subagent with an inline prompt | `spawn_agent(message=...)` with the same prompt |
 
 ### Message framing
 
