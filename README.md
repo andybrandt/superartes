@@ -164,7 +164,7 @@ Some skills integrate with external tools when available. They are not required 
 |------|-------|---------|
 | [Google Stitch MCP](https://stitch.withgoogle.com/docs/mcp/) | using-stitch, brainstorming | AI-powered UI/UX design generation, iteration, and preview |
 | [Codex CLI](https://developers.openai.com/codex/) | external-review, external-code-review, brainstorming, writing-plans | Independent second-model review when **Claude Code** is the host - design specs and plans (`external-review`) and code changes (`external-code-review`, via `codex exec review`). Linux, macOS and WSL; also native Windows, via a PowerShell runner not yet verified on a native Windows host. |
-| Claude Code CLI | external-review, external-code-review | Independent second-model review when **Codex** is the host, via `claude -p`. Currently Linux, macOS and WSL; native Windows support for this direction is not yet available. |
+| Claude Code CLI | external-review, external-code-review | Independent second-model review when **Codex** is the host, via direct foreground `claude -p`. Linux tested; macOS and WSL unverified; native Windows unavailable. |
 
 ## Philosophy
 

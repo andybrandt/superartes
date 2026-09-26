@@ -52,9 +52,9 @@ available. Quote every resolved path.
 
 `codex-prompt` names the document-review mode: a composed prompt fed to `codex exec`
 on stdin, with the repository readable but not writable. A Claude Code controller
-runs that mode through the background runner's `start prompt`; a Codex controller
-runs it as the managed adapter's profile of the same name. The Reviewer selection
-table above names the mode, not the mechanism.
+runs that mode through the background runner's `start prompt`. A Codex controller
+uses `claude-prompt` through the direct foreground invocation described below.
+The Reviewer selection table above names the mode, not the mechanism.
 
 ### Claude Code controller
 
@@ -149,10 +149,11 @@ and choose deliberately. Never guess.
 ### Codex controller
 
 Read `invoking-reviewers.md` from this skill's absolute source directory and follow
-the managed lifecycle it describes. That adapter exists because Codex's command
-runner reaps detached descendants, which the simple runner cannot survive. It is
-POSIX-only: on native Windows a Codex controller has no supported path to an
-independent reviewer — say so and stop.
+its direct foreground Claude invocation, platform checks, session polling,
+cancellation and terminal-evidence rules. The Completion and fallback diagram
+and runner instructions below apply only to Direction A (Claude Code controller).
+For Direction B, use the reference's completion rules and this skill's document
+fallback templates when a degraded fallback is consented to.
 
 ## Completion and fallback
 
@@ -239,9 +240,8 @@ review, dispatch a subagent with the matching template: the `brainstorming` skil
 Compose an equivalent brief for other document types. Label the result degraded, never
 independent.
 
-A Codex controller follows the reference's terminal-evidence order and its
-`indeterminate` handling instead. That state cannot arise under Claude Code, where
-nothing reaps the reviewer.
+A Codex controller follows the reference's terminal-evidence and lost-session
+rules instead. Unknown termination never permits a duplicate review or cleanup.
 
 ## Triage and summary
 

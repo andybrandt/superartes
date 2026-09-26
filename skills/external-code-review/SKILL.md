@@ -17,7 +17,7 @@ Obtain an integrated code-change review from a different model family and harnes
 
 Choose one scope. Its kind and value are always two separate arguments — two
 positional arguments to the runner under a Claude Code controller, two separate
-fields of the review key under a Codex controller — never a single `kind|value`
+recorded scope fields under a Codex controller — never a single `kind|value`
 string.
 
 | Situation | Scope kind | Scope value |
@@ -95,7 +95,7 @@ Native Windows uses `invoke-codex.ps1` with the same subcommands.
 
 ### Codex controller
 
-Read `invoking-reviewers.md` from the sibling `external-review` skill's absolute source directory; never resolve it relative to the user's project. Use a stable code review key containing canonical repository and scope, then follow the managed lifecycle. Never treat a live process or an empty live result as failure, and never retry `indeterminate` immediately. That adapter is POSIX-only; a Codex controller on native Windows has no supported independent reviewer.
+Read `invoking-reviewers.md` from the sibling `external-review` skill's absolute source directory; never resolve it relative to the user's project. Follow its direct foreground Claude workflow, recording the canonical repository in `work-dir` and the scope kind/value as the reference's labelled lines in `scope`. Include equivalent Git commands in the prompt and require inspected-file and Git/diff evidence. Follow the reference's platform, polling, cancellation and terminal-evidence rules before fallback or cleanup.
 
 ## Completion and triage
 

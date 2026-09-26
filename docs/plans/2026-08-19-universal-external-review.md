@@ -1,3 +1,9 @@
+> **Historical plan - Direction B superseded (2026-09-26).** The current Codex-controller
+> workflow uses direct foreground Claude execution, as specified in
+> `2026-09-13-simplify-direction-b.md` and
+> `skills/external-review/invoking-reviewers.md`. Managed-adapter instructions
+> below are retained as history. Direction A remains unchanged.
+
 # Universal External Review Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superartes:subagent-driven-development (recommended) or superartes:executing-plans to implement this plan task-by-task. Skip the branch-creation step in those skills because `external-for-codex` already exists. Steps use checkbox (`- [ ]`) syntax for tracking.

@@ -1,186 +1,164 @@
-# Invoking Managed Reviewers
+# Invoke Claude directly from a Codex controller
 
-This reference describes the **managed adapter**, `invoke-reviewer.sh`. It exists
-for one situation: a **Codex controller** obtaining a review from Claude. Codex's
-command runner reaps every descendant when a one-shot elevated call ends, including
-a supervisor detached with `nohup` and `setsid`, so that direction needs a
-supervisor, process-identity validation and a lock registry.
+Use this Direction B reference for document or code reviews. Codex selects
+Claude; retain the user's default model. Follow the calling skill's scope,
+prompt template, Triage and summary instructions. These completion rules
+govern Direction B.
 
-A **Claude Code controller does not need any of it** and must not use it. Claude
-Code leaves background descendants alone, so it uses the small background runner
-described in `superartes:external-review`'s own Invocation section
-(`invoke-codex.sh`, or `invoke-codex.ps1` on native Windows).
+Check the host platform before preparation. On native Windows, report independent
+Claude review unavailable and stop this invocation path; use the calling skill's
+consented fallback if appropriate. On Linux, proceed with the verified path below.
+On macOS or WSL, explicitly report that this is an unverified POSIX candidate,
+then proceed only if the required CLI capabilities, shared artifact visibility
+and foreground PTY session controls are available. Preserve that uncertainty in
+the final report; a successful launch alone does not verify the platform's full
+polling and cancellation behavior.
 
-**Platform support:** the managed adapter is POSIX only — Linux, macOS and WSL. There
-is no native-Windows adapter, so superartes does not *currently* support this direction
-on native Windows. That is a project support decision, not a Codex limitation: Codex
-itself runs natively on Windows, and a route that avoids POSIX process plumbing
-altogether is under investigation. Until one lands, tell the user this direction is
-unavailable on native Windows and offer WSL, rather than falling back to a same-model
-review without saying so.
+## 1. Prepare and check for an existing attempt
 
-Resolve the adapter from the absolute directory containing this reference and its
-sibling `SKILL.md`; never resolve it relative to the user's project. Under Codex,
-use the absolute skill source directory provided by the skill catalog. Quote every
-resolved path. Run the adapter's `check PROFILE` once per session before
-model-backed work.
+Validate the review scope first. Resolve skill paths from the installed catalog.
+For code, validate the repository and requested diff or commits, and require the
+reviewer to report inspected files and Git/diff evidence. For documents, use the
+calling skill's spec or plan review prompt.
 
-## Codex controller process hosting
+Run `claude --version` and `claude --help`. Confirm support for every flag in
+the command below. If Claude or a required capability is missing, report the
+reviewer unavailable; do not silently remove restrictions.
 
-This section applies only when a Codex/OpenAI controller selects
-`claude-prompt`. It does not change a Claude Code controller's invocation of
-either Codex profile. Claude Code controller should skip this section. 
+Resolve the project's physical absolute working directory with `pwd -P` in
+the intended directory. Define an exact, repeatable scope description, including
+the document paths or Git scope. Before launching, search only
+`superartes-claude-review.*` directories in the current `${TMPDIR:-/tmp}` and
+any temporary roots recorded for earlier attempts in this conversation. This
+is best-effort discovery within those roots, not guaranteed cross-session
+deduplication. Match their recorded physical `work-dir` and exact `scope`.
+Inspect **every** matching
+attempt, never just the newest. If any is live or its termination is unknown,
+do not start another. Inspect completed evidence before deciding whether another
+review is needed. Missing or ambiguous metadata is not permission to retry a
+known outstanding attempt.
 
-Claude needs provider network access. When that requires approved execution
-outside Codex's normal sandbox, open one approved persistent shell session and
-keep it alive for the managed lifecycle. Do not run `start` as a standalone
-one-shot elevated command: Codex's command runner may reap every descendant
-when that call ends, including a supervisor detached with `nohup` and `setsid`.
+Keep at most one outstanding attempt for the same project and scope. This is a
+controller rule, not an atomic lock or cross-controller registry. Independent
+Codex conversations are not deduplicated; automatic cross-session recovery is
+deliberately unavailable.
 
-On POSIX hosts, open a persistent PTY running `bash --noprofile --norc`. Send
-the quoted `check` and `start` commands to that session, retain `RUN_DIR`, and
-send bounded `wait` calls to the same session. Inspect terminal evidence and
-run `cleanup` before exiting the shell. Use the equivalent persistent shell
-facility on other supported hosts.
-
-The approval request must identify the project or disposable fixture exposed
-to Claude and state that the review uses network access and model tokens. If
-the Codex host cannot provide an approved persistent shell, stop before
-`start`; do not launch a review that the host is known to reap.
-
-## Stable review keys
-
-A stable review key is the identity of one review request. `start` refuses to
-launch a second review whose key matches an outstanding run: it returns exit 12
-and that run's `RUN_DIR` instead, so a repeated invocation attaches to the review
-already in flight rather than duplicating it. Two invocations that mean the same
-review must therefore produce byte-identical keys, which is why every field is
-canonicalized and encoded rather than used raw.
-
-Canonicalize every path to its absolute physical filesystem path. Encode every
-dynamic field as UTF-8, then RFC 4648 base64url without padding. The base64url
-alphabet contains neither `|` nor `,`, so those characters are unambiguous key
-separators even when they occur in an original path or value.
-
-For multiple documents, remove duplicate canonical paths, sort the canonical
-path UTF-8 byte sequences lexicographically, encode each path separately, and
-join the encoded paths with `,`. Construct keys as:
-
-- Document: `document|<project-b64url>|<documents-b64url-list>|<type-b64url>`
-- Code: `code|<repository-b64url>|<scope-kind-b64url>|<scope-value-b64url>`
-
-The `uncommitted` scope has no value, so its scope-value field is empty and the
-key ends with a trailing `|`.
-
-Canonicalize a path with `cd "$DIR" && pwd -P` or `realpath -e`. Encode one
-field with:
+Create a unique attempt directory:
 
 ```bash
-printf '%s' "$FIELD" | base64 | tr -d '\n' | tr '+/' '-_' | tr -d '='
+mktemp -d "${TMPDIR:-/tmp}/superartes-claude-review.XXXXXX"
 ```
 
-Sort document paths with `LC_ALL=C sort` before encoding them; another locale may
-not sort by UTF-8 byte sequence.
+Resolve that directory to its physical absolute path. Obtain a real provider
+session UUID from `/proc/sys/kernel/random/uuid` on Linux, or `uuidgen` when
+testing macOS. Never invent it. In the attempt directory save:
 
-## Normal lifecycle
+- `prompt.txt`: the exact review prompt, encoded as UTF-8.
+- `work-dir`: the physical absolute project directory.
+- `scope`: the exact review scope. For code, write two labelled lines:
+  `kind: <base|uncommitted|commit>` and `value: <scope value>`, with a final
+  newline. Use `value: none` for `uncommitted`; otherwise record the detected
+  trunk branch or validated commit SHA. The canonical repository is recorded
+  separately in `work-dir`. Reuse this exact serialization when matching attempts.
+- `session-id`: the Claude UUID.
 
-1. Create the prompt in a unique temporary file when the profile needs one.
-2. Start the fixed profile and retain the printed `RUN_DIR`.
-3. Remove only the caller-created prompt copy after start has retained it.
-4. Call `wait` in chunks safely below the host shell-tool cap - 540 seconds under
-   a 600-second cap. On expiry `wait` calls `status`, which can add a few
-   seconds beyond the requested timeout.
-5. On terminal state, read `state`, `exit-code`, `result`, and logs.
-6. Triage substantive feedback before cleanup.
-7. Call `cleanup` only after triage or diagnosed failure.
+Reserve `result.json` and `stderr.log` in that same directory. Record the
+attempt directory, working directory, scope and UUID as literal values in your
+reply before launch. Use literal absolute paths in every later tool call;
+shell variables do not survive between calls. All preparation, execution,
+inspection and cleanup must resolve the same attempt directory. Before the live
+run, verify that a preparation file is readable in the approved execution
+context. Shared `/tmp` visibility was verified on Linux, not on every host.
 
-Never treat an empty live result as failure. Never start another matching
-review while one is outstanding. `start` returns the existing run when its
-stable key is outstanding.
+## 2. Launch one foreground command
 
-To cancel, run `cancel`, then `wait` until the state is terminal, inspect the
-evidence, and only then `cleanup`. `cleanup` returns 66 while the state is
-non-terminal or while a reviewer or supervisor identity still matches, so never
-call it directly on a live run.
+Use the host command tool's working-directory argument for the recorded project
+directory. Obtain required sandbox approval identifying the project/files
+exposed to Claude, provider network access and model charges. Honor existing
+explicit authorization without asking for the same consent again; host approval
+enforcement still applies.
 
-## Recover lost start output
+Enable a PTY on this foreground command so the Codex command-session input tool
+can send Ctrl-C. Request a short initial yield, such as one second. Substitute
+every quoted placeholder below with the corresponding shell-quoted literal;
+escape embedded single quotes correctly. Run this command directly:
 
-An ordinary `start` launches a new review when no matching key exists. Recover
-only when every semantic input is exact: profile, stable key, canonical work
-directory, and original prompt bytes or code-review scope arguments. If any
-input is uncertain, do not reissue `start`; report that recovery is blocked and
-ask for or diagnose the missing input. Never substitute a merely similar prompt.
-
-- If you have not yet deleted your prompt file, reissue the original ordinary
-  `start` with that same still-readable file.
-- If you have already deleted it, write the exact original prompt bytes to a new
-  temporary file, then reissue the same profile, stable key and work directory
-  with that file. The replacement pathname need not match the original, because
-  lock identity is the stable key, not the prompt pathname.
-
-Do not use `--after-terminal` for recovery. Recovery still requires profile
-preflight to succeed because `start` performs preflight before outstanding-key
-lookup. On exit 12, retain the printed outstanding `RUN_DIR`, remove only the
-caller-created replacement prompt, and use the recovered path for `wait`.
-
-## Profiles
-
-POSIX forms, where `$ADAPTER` is the quoted absolute script path:
-
+<!-- direct-claude-command:start -->
 ```bash
-"$ADAPTER" start claude-prompt "$REVIEW_KEY" "$WORK_DIR" "$PROMPT_FILE"
-"$ADAPTER" start codex-prompt "$REVIEW_KEY" "$WORK_DIR" "$PROMPT_FILE"
-"$ADAPTER" start codex-review "$REVIEW_KEY" "$WORK_DIR" uncommitted
-"$ADAPTER" start codex-review "$REVIEW_KEY" "$WORK_DIR" base "$BASE_REF"
-"$ADAPTER" start codex-review "$REVIEW_KEY" "$WORK_DIR" commit "$COMMIT_SHA"
-"$ADAPTER" start --after-terminal "$PREVIOUS_RUN" claude-prompt "$REVIEW_KEY" "$WORK_DIR" "$PROMPT_FILE"
-"$ADAPTER" status "$RUN_DIR"
-"$ADAPTER" wait "$RUN_DIR" "$TIMEOUT_SECONDS"
-"$ADAPTER" cancel "$RUN_DIR"
-"$ADAPTER" cleanup "$RUN_DIR"
+claude -p --safe-mode --permission-mode dontAsk \
+  --tools "Read,Glob,Grep,Bash" \
+  --allowedTools "Read,Glob,Grep,Bash(git diff *),Bash(git status *),Bash(git rev-parse *),Bash(git cat-file *),Bash(git show *),Bash(git log *)" \
+  --output-format json --session-id '<provider-session-uuid>' \
+  < '<absolute-prompt-path>' > '<absolute-result-path>' 2> '<absolute-stderr-path>'
 ```
+<!-- direct-claude-command:end -->
 
-For a linked retry, place `--after-terminal "$PREVIOUS_RUN"` immediately after
-`start`, as shown. Use `status`, `cancel`, and `cleanup` with the same final
-`$RUN_DIR` argument.
+Do not add a runner, timeout, model override, `&`, `nohup`, `setsid`, or a
+persistent interactive shell. The Git allowances are not an operating-system
+read-only sandbox: output flags and configured diff/textconv helpers can have
+side effects. Do not claim stronger isolation or widen permissions to let the
+reviewer run tests. Run necessary checks as controller and supply their evidence.
 
-Exit codes are: 0 terminal/accepted operation, 2 missing CLI capability, 3
-still running, 4 indeterminate, 12 outstanding matching review, 64 usage, 65
-invalid run, 66 cleanup evidence remains, 75 registry unavailable, and 127 CLI
-unavailable. Exit 3 and 4 are lifecycle facts, not generic tool failures.
+## 3. Retain the session and wait
 
-## Terminal evidence order
+Record the host command-session identifier separately from Claude's UUID and
+any orchestration cell ID. Poll that same command using the host session-input
+or wait tool. Keep each blocking wait below 60 seconds and give progress updates.
+Tool yields, silence and empty live artifacts are not failures or permission to
+start a duplicate. Do not impose an arbitrary short reviewer timeout.
 
-State and validated reviewer/supervisor identity, exit code, native result,
-reviewer output and log, supervisor output and log, provider session/transcript,
-then already-returned output. Substantive review anywhere means triage it and
-do not retry.
+At fifteen minutes in interactive work, give a progress checkpoint and ask
+whether to continue through a non-blocking user-input mechanism, if available.
+Retain the active turn and session while waiting; absent an answer, continue
+bounded polling. If no non-blocking question mechanism exists, report that limit
+and keep polling. Never end the turn merely to ask: survival across turn ending,
+user Esc or full application crash is unverified.
 
-`status` prints state, profile, provider, elapsed time, the artifact paths,
-`REVIEWER_PID`, `EXIT_CODE` and `COMPLETED_AT`. It does not print supervisor
-identity, and once the state is terminal it returns without revalidating either
-identity. To establish the absence that a linked retry requires, read
-`reviewer-pid`, `reviewer-start`, `supervisor-pid` and `supervisor-start` in
-`RUN_DIR` and confirm no live process matches both a recorded PID and its start
-token. An artifact file that is absent is itself evidence, not a read failure.
+On an abandonment request, interrupt the existing command through the host's
+verified cancellation facility, then await terminal acknowledgement. Do not
+declare cancellation or retry merely because an interrupt was sent. If the
+client cannot terminate the command, say the reviewer may keep spending tokens
+and retain its evidence.
 
-Claude JSON may be one result object or a transcript-style array. In the array
-form, locate the terminal item whose `type` is `result`; do not assume a
-top-level `.result`. Never parse or judge output while the reviewer is live.
+## 4. Establish terminal evidence, then triage
 
-For `indeterminate`, inspect every artifact and process identity. Use substantive
-feedback if present. Otherwise record the diagnostic and consider at most one
-degraded fallback only after the original reviewer is confirmed absent. Never
-retry immediately.
+On terminal command return, record the shell exit status and inspect both native
+JSON and stderr. Accept a result object or a transcript array; locate the final
+item whose `type` is `result`. Check error indicators, permission denials and
+substantive feedback. Shell exit zero alone is insufficient: real cancellation
+has returned zero with `is_error: true`, subtype `error_during_execution` and
+`terminal_reason: aborted_streaming`. A nonzero exit can still contain a useful
+review; preserve and triage it. Empty, malformed or incomplete terminal JSON
+does not establish a successful review. For code, require reported Git/diff
+inspection evidence before accepting the review as complete.
 
-An ownerless registry lock is not auto-deleted. Inspect
-`.registry-lock/owner-pid` and `owner-start`; only after proving no owner exists,
-remove those two known files and the empty lock directory.
+Label Claude's `duration_ms` as provider-reported runtime. If independently
+measuring a verification run, measure process elapsed time excluding approval
+waiting; the surrounding tool-call duration is not reviewer runtime.
 
-## Fallback
+If the command handle is lost, inspect retained artifacts and all matching
+attempts without launching another reviewer. A missing session is unknown, not
+cancelled. Process inspection, if needed, must have the same execution visibility
+as the original approved command; absence from a restricted process listing
+proves nothing. If termination cannot be established, stop dependent work and
+request user intervention. Never automatically restart, blindly use
+`claude --resume`, or clean up an unknown/live attempt.
 
-Use `--after-terminal` only after the original is terminal, validated process
-evidence shows its reviewer and supervisor are absent, and all evidence shows
-no usable review. Explicit user approval can authorize that linked retry only
-after the same terminal-and-absent precondition. Approval never permits a
-linked retry while the original is live. Label same-model fallback as degraded.
+After termination is established, follow the calling skill's Triage and summary
+instructions, retaining evidence through triage or failure diagnosis. For
+documents, use the calling skill's document fallback templates; for code, use
+the code-review fallback specified by the calling skill. Obtain the required
+consent for a degraded same-model fallback, only after the original attempt is
+confirmed terminal or unavailable. Do not treat unknown state as unavailable. Delete only
+the exact attempt directory when termination is established and its evidence is
+no longer needed.
+
+## Verified boundary
+
+Linux foreground PTY document/code reviews and real Claude cancellation have
+been exercised. A silent foreground PTY process completed after 900 seconds;
+this does not establish unlimited command lifetime. macOS and WSL remain
+unverified POSIX candidates. Native Windows is unavailable pending native tests
+of UTF-8 input, paths with spaces, exit propagation, long polling and cancellation;
+Linux PowerShell is not native Windows evidence. Do not provide a guessed native
+Windows invocation or claim automatic recovery after host/session loss.

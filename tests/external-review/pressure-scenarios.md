@@ -1,3 +1,7 @@
+> **Historical managed-adapter evidence.** These pre-implementation captures
+> document the removed Direction B adapter. Current instructions are in
+> `skills/external-review/invoking-reviewers.md`; these are not active procedures.
+
 # External Review Pressure Scenarios
 
 These RED captures were run against the working-tree skills before either

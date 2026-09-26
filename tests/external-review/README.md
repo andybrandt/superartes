@@ -1,35 +1,55 @@
 # External Review Tests
 
+## Direction B direct foreground checks
+
+On 2026-09-26, a Codex controller on Linux exercised the direct
+foreground route with Codex CLI 0.157.1 and Claude Code 2.1.283. A silent PTY
+command completed after 900.00 seconds through bounded command-session polls.
+A real document review completed in 10.88 seconds with native JSON, exit 0 and
+no permission denials. A separate real Claude interruption returned shell exit
+0 but its JSON reported `is_error: true` and `terminal_reason:
+aborted_streaming`; no process with that provider session UUID remained. A
+14.65-second code review of a disposable Git repository reported the Git
+commands and files it inspected and found the intentionally removed empty-input
+guard in `calculator.py`. These checks establish the foreground mechanism on
+this Linux host. They do not establish survival after ending a Codex turn, a
+full application crash, or behavior on macOS, WSL or native Windows.
+
+An independent Claude review of the staged switch returned a successful native
+JSON result with no stderr or blocking findings (provider-reported runtime:
+79.23 seconds). The reviewer inspected the staged Git diff, the handoff, plan,
+skills and tests; it did not run the controller's checks.
+
+The active command is tested without provider access by
+`python3 tests/external-review/test-direct-claude.py`. Its nine cases execute
+the marked command in `skills/external-review/invoking-reviewers.md` against a fake executable,
+including success, failure, empty live output and deliberate command sabotage.
+The active skills use this direct foreground command.
+
 Three deterministic suites cover the two external-review directions. All of them
 use fake CLIs, so none needs credentials or network access.
 
 | Suite | Tests | Covers |
 |---|---|---|
-| `bash tests/external-review/run-tests.sh` | 420 | `invoke-reviewer.sh`, the managed adapter — a **Codex controller** obtaining a review from Claude |
+| `python3 tests/external-review/test-direct-claude.py` | 9 | The documented direct Claude command - a **Codex controller** obtaining a review from Claude |
 | `bash tests/external-review/test-invoke-codex.sh` | 77 | `invoke-codex.sh`, the background runner — a **Claude Code controller** obtaining a review from Codex |
 | `pwsh -NoProfile -File tests/external-review/Test-InvokeCodex.ps1` | 117 | `invoke-codex.ps1`, the Windows sibling of that runner |
 
 The first two run on their target platform. The third does not:
 `Test-InvokeCodex.ps1` is exercised only under PowerShell 7 on Linux and **has
-never been run on native Windows**. There is also no managed adapter for native
-Windows at all — that support was withdrawn rather than deferred. The
+never been run on native Windows**. The direct Claude path is unavailable on
+native Windows; that support was withdrawn rather than deferred. The
 sections below say so in detail.
 
-The pre-implementation pressure evidence for the managed adapter is in
-[pressure-scenarios.md](pressure-scenarios.md). `indeterminate` is computed
-only by `status` and `wait`. It is never persisted over the last reliable
-state.
+## Historical managed-adapter checkpoints
 
-## Codex-controller Linux live checkpoint
-
-Model-backed commands need provider network access and spend model tokens. A
-Codex controller must request approval to run them outside its restricted
-sandbox. Run `claude-prompt` through the persistent-shell procedure in
-`skills/external-review/invoking-reviewers.md`; a standalone elevated `start`
-call is unsafe on Codex hosts that reap all descendants when the call ends.
-This hosting constraint is specific to the Codex controller. Normal Claude
-Code controller behavior is checked separately in an interactive plugin
-session.
+The removed `invoke-reviewer.sh` managed adapter passed 420 deterministic
+assertions at the pre-switch baseline. Its suite was removed with the machinery
+it tested. The following Task 5/6 evidence and
+[pressure-scenarios.md](pressure-scenarios.md) describe that historical adapter,
+not the active invocation procedure. Use the direct foreground reference above
+for current Direction B reviews. The historical `indeterminate` state and
+persistent-shell procedure do not apply to the direct command.
 
 The Task 5 Linux checkpoint was run from a working tree based on checkpoint
 commit `74c9054` with Claude Code 2.1.241:
@@ -49,7 +69,7 @@ commit `74c9054` with Claude Code 2.1.241:
   live reviewer and contained the required `TASK5_LINUX_GREEN` marker. Both
   logs were empty, and cleanup succeeded.
 
-## Codex-controller code-review live checkpoint
+## Historical Codex-controller code-review live checkpoint
 
 Task 6 ran exactly one real `claude-prompt` review against a disposable Git
 repository, without running `codex-review` from the Codex controller. The
@@ -100,17 +120,12 @@ any machine: the maintainer cannot read PowerShell, and Windows PowerShell 5.1 o
 available Windows host is broken, so the code could be neither reviewed nor run. Shipping
 that much unverified code was a liability rather than a feature.
 
-**This is a superartes support decision, not a Codex limitation.** Codex runs natively on
-Windows. The adapter was Windows-specific only because it reimplemented POSIX process
-detachment; an external Codex review (2026-09-09) demonstrated, on one host, that an
-approved foreground command survives tool-call yields without any detachment at all,
-which would remove the platform-specific part entirely. That result is a single-host
-demonstration rather than a general guarantee, and only Codex can verify its own process
-hosting, so it is the subject of follow-up work owned by a Codex session.
-
-Until it lands, superartes supports this direction on Linux, macOS and WSL. On native
-Windows, tell the user it is unavailable and offer WSL, rather than quietly substituting
-a same-model review.
+The active direct foreground path has been tested on Linux. macOS and WSL are
+unverified POSIX candidates; the reference requires checking CLI capabilities,
+artifact visibility and command-session controls before proceeding there.
+Native Windows remains unavailable pending native tests of input, paths,
+exit propagation, long polling and cancellation. Linux PowerShell tests do
+not establish native Windows behavior.
 
 This limitation does not affect the **Claude Code controller**, which reaches Codex
 through `skills/external-review/invoke-codex.sh` on POSIX hosts and

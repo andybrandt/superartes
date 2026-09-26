@@ -181,7 +181,7 @@ def validate_marketplace(plugin_manifest: dict[str, Any]) -> None:
 
 
 def validate_external_code_review_skill() -> None:
-    """Validate managed external code review guidance and profiles."""
+    """Validate external code review selection and direct Claude guidance."""
     skill_path = REPO_ROOT / "skills" / "external-code-review" / "SKILL.md"
     require(skill_path.is_file(), "Missing external-code-review skill")
 
@@ -217,28 +217,26 @@ def validate_external_code_review_skill() -> None:
         "external-code-review must stop for both empty and invalid scopes",
     )
 
-    shell_adapter_path = REPO_ROOT / "skills" / "external-review" / "invoke-reviewer.sh"
-    require(shell_adapter_path.is_file(), "Missing invoke-reviewer.sh")
-
-    shell_adapter = shell_adapter_path.read_text(encoding="utf-8")
-    shell_profile_builder = shell_adapter.split("run_profile() {", 1)[1].split(
-        "\nsupervise_run() {", 1
-    )[0]
-    shell_reviewer_commands = "\n".join(
-        block.split(" &", 1)[0]
-        for block in shell_profile_builder.split("reviewer_gate ")[1:]
-    )
-
-    # The managed adapter is POSIX-only; native Windows is unsupported for the
-    # Codex-controller direction, so there is no PowerShell adapter to inspect.
     require(
-        "--model" not in shell_reviewer_commands,
-        "POSIX reviewer profiles must not pass --model",
+        not (reviewer_reference.parent / "invoke-reviewer.sh").exists(),
+        "Direction B must use the direct Claude command, not invoke-reviewer.sh",
     )
-    require(
-        re.search(r"(?<![\w-])-m(?![\w-])", shell_reviewer_commands) is None,
-        "POSIX reviewer profiles must not pass -m",
+    reference = reviewer_reference.read_text(encoding="utf-8")
+    command_match = re.search(
+        r"<!-- direct-claude-command:start -->\s*```bash\n(.*?)\n```\s*"
+        r"<!-- direct-claude-command:end -->",
+        reference,
+        re.DOTALL,
     )
+    require(command_match is not None, "Missing marked direct Claude command")
+    command = command_match.group(1)
+    for required in (
+        "claude -p", "--safe-mode", "--permission-mode dontAsk",
+        "--tools", "--allowedTools", "--output-format json", "--session-id",
+    ):
+        require(required in command, f"Direct Claude command must include {required}")
+    for forbidden in ("--model", "--fallback-model", "--settings", "ANTHROPIC_MODEL"):
+        require(forbidden not in command, f"Direct Claude command must not pin {forbidden}")
 
     # The Claude-Code-controller runners must honour the same rule: the user's own
     # configuration chooses the model, never this repository. Unlike the POSIX
