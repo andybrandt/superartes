@@ -18,6 +18,8 @@ Open the plugin directory:
 
 Choose the Superartes marketplace and install the `superartes` plugin.
 
+For Claude reviews under Codex, see the [independent review setup](../docs/README.codex.md#independent-claude-reviews).
+
 ## Updating
 
 ```bash

@@ -83,6 +83,11 @@ To update after new commits are pushed:
 codex plugin marketplace upgrade superartes
 ```
 
+Independent Claude reviews from Codex send review-relevant project material to
+Claude. Installing the plugin does not authorize that disclosure. You can opt in
+once for all your Codex projects through a global instruction file, or authorize
+reviews per project or request. See [Codex review setup](docs/README.codex.md#independent-claude-reviews).
+
 *(I test & use this plugin under both `claude` and `codex`)*
 
 ### OpenCode

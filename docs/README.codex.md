@@ -26,6 +26,42 @@ codex plugin marketplace upgrade superartes
 
 Restart Codex after updating so plugin metadata and skills are reloaded.
 
+## Independent Claude Reviews
+
+When Codex uses Superartes's `external-review` or `external-code-review` skill,
+it can run an installed and authenticated Claude Code CLI for an independent
+review. The review prompt and relevant repository files, plans, or diffs are
+sent to Claude. Provider usage may incur charges. Installing Superartes does
+not itself authorize sending this material.
+
+For a one-time opt-in across your Codex projects, add the following to your
+global `~/.codex/AGENTS.md` (or `$CODEX_HOME/AGENTS.md` if you use a custom
+Codex home). Keep any instructions already in that file:
+
+```markdown
+## Superartes independent reviews
+
+I authorize Codex, when using Superartes's external-review and
+external-code-review skills, to send review prompts and review-relevant
+repository files, plans, and diffs from projects I open to Claude Code CLI for
+independent review, including any applicable provider usage costs. This
+authorization remains in effect until I revoke it. Do not ask again solely for
+this disclosure. It does not authorize unrelated file disclosure.
+```
+
+This is a broad choice: it covers every project you open with Codex. For
+narrower standing authorization, put the same instruction in a project's
+`AGENTS.md` instead, or authorize individual reviews in conversation. Restart
+Codex after changing either file. [Codex loads global and project instructions
+at session start](https://learn.chatgpt.com/docs/agent-configuration/agents-md).
+If you use `~/.codex/AGENTS.override.md`, put the instruction there instead;
+that file replaces the global `AGENTS.md` while it exists.
+
+This instruction tells Codex your disclosure preference. It does not change
+Codex's sandbox or approval policy; running the Claude CLI may still require a
+separate host approval. The direct Claude review route is tested on Linux;
+macOS and WSL are unverified, and native Windows is unavailable.
+
 ## Subagent Support
 
 Skills like `dispatching-parallel-agents` and `subagent-driven-development` require Codex's multi-agent feature. Add this to your Codex config:
