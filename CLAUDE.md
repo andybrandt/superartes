@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Superartes is a composable skills library that provides structured development workflows for AI coding agents (Claude Code, Cursor, Codex, OpenCode, Gemini CLI). It enforces discipline through skills that trigger automatically: brainstorming before coding, TDD, systematic debugging, subagent-driven development with two-stage review, and feature branch isolation. Version 1.4.5. Fork of obra/superpowers.
+Superartes is a composable skills library that provides structured development workflows for AI coding agents (Claude Code, Cursor, Codex, OpenCode). It enforces discipline through skills that trigger automatically: brainstorming before coding, TDD, systematic debugging, subagent-driven development with two-stage review, and feature branch isolation. Version 1.5.0. Fork of obra/superpowers.
 
 ## Repository Structure
 
@@ -23,6 +23,7 @@ tests/            # Test suites organized by test type
 docs/             # Design specs, implementation plans, and platform-specific READMEs
 .claude-plugin/   # Claude Code plugin manifest (plugin.json, marketplace.json)
 .cursor-plugin/   # Cursor plugin manifest (plugin.json)
+.codex-plugin/    # Codex plugin manifest (plugin.json)
 .codex/           # Codex installation instructions
 .opencode/        # OpenCode plugin loader
 ```
@@ -32,7 +33,7 @@ docs/             # Design specs, implementation plans, and platform-specific RE
 - **Skills** are the core product. Each skill is a `SKILL.md` with YAML frontmatter (`name`, `description`) plus optional reference files. Skills are NOT code - they are structured documentation that guides agent behavior.
 - **SKILL.md frontmatter** `description` must start with "Use when..." and describe only triggering conditions, never the workflow itself (agents shortcut by following descriptions instead of reading the full skill).
 - **Session-start hook** (`hooks/session-start`) injects `using-superartes` skill content into every conversation. This is the bootstrap mechanism - it tells the agent to check for and invoke relevant skills before any action.
-- **Multi-platform**: Plugin manifests exist for Claude Code (`.claude-plugin/`), Cursor (`.cursor-plugin/`), Codex (`.codex/`), OpenCode (`.opencode/`), and Gemini (`GEMINI.md`, `gemini-extension.json`). Each platform has its own hook format and tool mapping.
+- **Multi-platform**: Plugin manifests and loaders exist for Claude Code (`.claude-plugin/`), Cursor (`.cursor-plugin/`), Codex (`.codex-plugin/`), and OpenCode (`.opencode/`). Each platform has its own integration format and tool mapping.
 - **Brainstorm server**: `skills/brainstorming/scripts/server.cjs` is a Node.js WebSocket server for visual brainstorming companion. Uses CommonJS (not ESM) due to root `package.json` having `"type": "module"`.
 
 ## Running Tests

@@ -9,28 +9,32 @@ model: sonnet
 ## Default format
 
 - One short subject line - focus on the **why** or **what changed**, not implementation details
-- No body by default (see Exceptions)
+- If some high level implementation details are needed with that particular commit include them in the message
 - Every commit carries the **attribution trailer** described below
 
 ## Attribution trailer
 
 Before composing a commit message, make an explicit attribution check:
 
-0. Check if the work (changes) being commited are made in whole or in part by you, if the changes were made wholy by the user and you were just commiting them stop and do not attach the attribution trailer. 
+0. Check if the changes being committed are made in whole or in part by you, if the changes were made wholly by the user and you were just committing them (human edits only) then the whole attribution trailer is the following line:  "Human edits by the user." (or equivalent in the language used by this repository),  no Model, Harness or Session lines.
 1. Identify the exact model identifier you are running as.
 2. Check whether the current platform exposes a resumable session id, local transcript id, thread id, or equivalent.
 3. Check whether the current platform exposes a browser URL or shareable link for this exact thread/session.
-4. Check whether the commit also contains manual additions or edits the user made directly (a *mixed* human + AI commit).
+4. Check if you can access the harness name & version you are running under (eg. Claude Code's or Codex's version).
+5. Check whether the commit also contains manual additions or edits the user made directly (a *mixed* human + AI commit).
 
 Append this trailer to **every** commit that contains your work as a footer - placed after the subject line and any body, separated from what precedes it by one blank line. For the usual one-line commit it sits directly under the subject:
 
 ```
 Model: <model identifier>
+Harness: <harness name> <version, if available>
 Session: <resumable session id, local transcript id, thread id, or equivalent - only if available>
 Session-URL: <browser/share URL for this exact thread/session - only if available>
 ```
 
 - **Model** - the exact model identifier you are running as (for example `claude-opus-4-8[1m]`). Always include this line.
+- **Harness** - the application running you and its version, e.g. Claude Code 2.1.283 or  Codex CLI 0.157.1. Take the version from the harness itself (should be visible to you internally or use claude --version, codex  --version); if it's unavailable, give the name alone. Never guess the version.
+
 - **Session** - the current platform's resumable session id, local transcript id, thread id, or equivalent. Under Claude Code, this is the LOCAL session UUID that `claude --resume <uuid>` accepts. Obtain it in this order:
 
   1. **Primary source** - the `CLAUDE_CODE_SESSION_ID` environment variable, which Claude Code sets to exactly this UUID. The `:-` guard keeps it safe under `set -u`:
@@ -54,13 +58,13 @@ Session-URL: <browser/share URL for this exact thread/session - only if availabl
 
   Emit the `Session` line whenever either source yields a real value. If both fail, **omit the line** - never fabricate a UUID.
 - **Session-URL** - the browser URL or shareable link for this exact thread/session. Include this line when the platform exposes a real URL, such as a `claude.ai/code` session URL, a Codex thread/session URL, or another current conversation link. **Omit the entire line** when no URL is available - do not invent, infer, or guess it.
-- **Direct edits by user** - if step 4 found manual additions or edits the user made directly (a mixed human + AI commit), add one final trailer line, exactly: `+ direct edits by user.` This marks the commit as mixed rather than purely AI-authored, so the history shows plainly where the user intervened by hand. Omit it when the work is entirely yours. (When the work was *wholly* the user's, step 0 already applies - emit no trailer at all.)
+- **Direct edits by user** - if step 5 found manual additions or edits the user made directly (a mixed human + AI commit), add one final trailer line, exactly: `+ direct edits by the human user.` This marks the commit as mixed rather than purely AI-authored, so the history shows plainly where the user intervened by hand. Omit it when the work is entirely yours. (When the work was *wholly* the user's, step 0 already applies)
 
 **Purpose:** lets the author later identify which model and thread produced a commit and reopen it from the CLI (`claude --resume`) or, when a URL exists, in the browser.
 
-**Do not add a `Co-Authored-By:` trailer.** The `Model` line records authorship; the co-author trailer is redundant and is intentionally replaced by this scheme. This reverses the previous "no attribution" policy.
+**Claude Code: do not add a `Co-Authored-By:` trailer.** The `Model` line records AI authorship; the co-author trailer is redundant and is intentionally replaced by this scheme. This reverses the previous "no attribution" policy.
 
-**Other platforms (Codex, Cursor, Gemini, OpenCode):** always emit `Model` with your own model identifier. For `Session`, emit your platform's resumable session id, local transcript id, thread id, or equivalent if it exposes one; otherwise omit the line. For `Session-URL`, actively check whether the current session has a real browser/share URL and include it when available; otherwise omit the line.
+**Other harnesses (Codex, Cursor, OpenCode etc.):** always emit `Model:` with your own model identifier. For `Session`, emit your platform's resumable session id, local transcript id, thread id, or equivalent if it exposes one; otherwise omit the line. Emit `Harness:` with your own harness name and version. For `Session-URL`, actively check whether the current session has a real browser/share URL and include it when available; otherwise omit the line.
 
 ## Version number commits
 
@@ -75,13 +79,15 @@ If the work fixes a GitHub issue, append `(fixes #N)` to the commit message:
 
 - Example: `v0.1.16 - fix redundant double elink call per full-text request (fixes #12)`
 
+This allows GitHub to link that commit to the issue.
+
 ## Version tagging
 
 If the commit includes a version number change, tag that commit with the version number. If unsure whether a given commit should be tagged, ask the user.
 
-## Exceptions
+## Long commit messages
 
-Longer explanations (multi-line body) are allowed only for major changes involving longer work between commits, especially in multi-developer projects where the additional context provides value to other contributors.
+Longer explanations (multi-paragraph body) are allowed only for major changes involving longer work between commits, especially in multi-developer projects where the additional context provides value to other contributors.
 
 ## Project overrides
 

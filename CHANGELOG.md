@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.5.0] - 2026-09-28
+
+### Changed
+
+- **Independent reviews work in both controller directions:** Claude Code invokes Codex for document and code reviews through background runners with completion files; Codex invokes Claude Code through a direct, foreground `claude -p` command. The Codex direction replaces the earlier managed adapter and keeps the user's Claude model selection. Linux behavior and deterministic runner tests were verified; native Windows remains unavailable for the Codex direction.
+- **Codex review disclosure is explicit:** Installation guidance explains what review material goes to Claude and how to authorize reviews globally, per repository, or per request. Installing the plugin alone does not grant that authorization.
+- **Commit attribution distinguishes human and agent edits:** The `commit-message` skill now records the harness, marks mixed commits with `+ direct edits by the human user.`, and uses `Human edits by the user.` for wholly human changes.
+
+## [1.4.5] - 2026-08-19
+
+### Changed
+
+- **Codex and Stitch skill guidance:** Updated the Superartes bootstrap flow for Codex task tracking and added a Claude Code design-skill choice to the Stitch workflow.
+- **Gemini CLI support removed:** Removed Gemini-specific integration files and updated installation guidance after the CLI was discontinued.
+
 ## [1.4.4] - 2026-07-09
 
 ### Changed
