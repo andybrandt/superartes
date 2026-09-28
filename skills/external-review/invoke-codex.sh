@@ -22,7 +22,7 @@
 #   invoke-codex.sh discard <run-dir> [--force]
 #   invoke-codex.sh --help
 #
-# Exit codes (a subset of the managed adapter's, so the two never contradict):
+# Exit codes (invoke-codex.ps1 uses the same set, so the two never contradict):
 #   0    operation succeeded; for status/wait, completion has been recorded
 #   3    completion not yet recorded (status/wait only) — a lifecycle fact, not a failure
 #   64   usage error
@@ -51,9 +51,9 @@ die() {
 }
 
 usage() {
-    # Printed to STDOUT, so `--help` is a success path — the sibling
-    # invoke-reviewer.sh behaves the same way, and a controller written against
-    # one runner should not trip over the other. usage_error is the failure form.
+    # Printed to STDOUT, so `--help` is a success path, as it is in the
+    # PowerShell sibling invoke-codex.ps1; a controller written against one
+    # runner should not trip over the other. usage_error is the failure form.
     cat <<'USAGE'
 Usage:
   invoke-codex.sh start prompt <work-dir> <prompt-file>
@@ -91,8 +91,8 @@ launch() {
     # util-linux and is therefore ABSENT on stock macOS, so it must be guarded:
     # calling it unconditionally makes every macOS run fail. The fallback runs the
     # job inside a subshell with `set -o monitor` (job control), which gives it
-    # its own process group -- the portable approximation the managed adapter
-    # already uses. The long spelling is deliberate: the short spelling of this
+    # its own process group -- the portable approximation of setsid.
+    # The long spelling is deliberate: the short spelling of this
     # same builtin collides token-for-token with codex's short model flag, and
     # the plugin validator scans these runners for that flag with no exception
     # carved out. Keep the long form here.
@@ -120,8 +120,7 @@ launch() {
     '
 
     # SUPERARTES_CODEX_NO_SETSID=1 forces the fallback so the macOS path can be
-    # exercised on Linux. The managed adapter carries the same switch. Compared as
-    # a STRING: a numeric test on a knob someone may set to "true" prints
+    # exercised on Linux. Compared as a STRING: a numeric test on a knob someone may set to "true" prints
     # "integer expected" onto start's stderr instead of just not matching.
     if [ "${SUPERARTES_CODEX_NO_SETSID:-0}" != 1 ] && command -v setsid >/dev/null 2>&1; then
         nohup setsid sh -c "$inner" _ "$run_dir" "$work_dir" "$stdin_file" "$@" \

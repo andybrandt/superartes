@@ -137,9 +137,9 @@ Usage:
 }
 
 function Write-Usage {
-    # Asking for help is a success path and goes to stdout. The sibling
-    # invoke-reviewer.sh behaves the same way; a controller written against one
-    # runner should not trip on the other.
+    # Asking for help is a success path and goes to stdout, as it does in the
+    # POSIX sibling invoke-codex.sh; a controller written against one runner
+    # should not trip on the other.
     [Console]::Out.WriteLine((Get-UsageText))
     [Console]::Out.Flush()
     exit 0

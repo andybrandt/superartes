@@ -239,10 +239,9 @@ def validate_external_code_review_skill() -> None:
         require(forbidden not in command, f"Direct Claude command must not pin {forbidden}")
 
     # The Claude-Code-controller runners must honour the same rule: the user's own
-    # configuration chooses the model, never this repository. Unlike the POSIX
-    # adapter check above, this scans the whole runner file rather than a
-    # profile-builder slice, so a model flag must stay out of the runners'
-    # comments as well as their code.
+    # configuration chooses the model, never this repository. This scans the
+    # whole runner file, so a model flag must stay out of the runners' comments
+    # as well as their code.
     #
     # A model can be pinned four ways, so all four are rejected: the long flag,
     # the short flag, a `-c model=` / `--config model=` override, and `--profile`,

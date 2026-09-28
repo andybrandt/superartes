@@ -35,7 +35,8 @@ use fake CLIs, so none needs credentials or network access.
 | `bash tests/external-review/test-invoke-codex.sh` | 77 | `invoke-codex.sh`, the background runner — a **Claude Code controller** obtaining a review from Codex |
 | `pwsh -NoProfile -File tests/external-review/Test-InvokeCodex.ps1` | 117 | `invoke-codex.ps1`, the Windows sibling of that runner |
 
-The first two run on their target platform. The third does not:
+The first two have run only on Linux; macOS and WSL are unverified for both
+directions. The third has not run on its target platform at all:
 `Test-InvokeCodex.ps1` is exercised only under PowerShell 7 on Linux and **has
 never been run on native Windows**. The direct Claude path is unavailable on
 native Windows; that support was withdrawn rather than deferred. The

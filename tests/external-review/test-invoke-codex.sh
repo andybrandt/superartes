@@ -525,8 +525,8 @@ test_force_flag_position() {
 }
 
 test_help() {
-    # The sibling invoke-reviewer.sh treats --help as a success path, and a
-    # controller written against one runner should not trip over the other.
+    # --help is a success path in both invoke-codex runners, so a controller
+    # written against one should not trip over the other.
     local sandbox out st
     sandbox=$(new_sandbox)
     out=$(run_in "$sandbox" --help 2>/dev/null); st=$?
