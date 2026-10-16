@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.1] - 2026-10-16
+
+### Changed
+
+- **External document reviews ask for proportionate design:** `external-review` now includes the product's purpose, intended users, scale and roadmap in the reviewer prompt; asks spec reviewers about proven patterns and plan reviewers about tests in each task; calibrates logic, security and edge-case gaps as issues and unreasoned design preferences as not; and asks whether the design is more complex than the requirements and current scale need, blocks stated future directions, or adds unnecessary dependencies or special cases.
+- **Code reviewers check cyclomatic complexity:** the `requesting-code-review` reviewer checklist now asks about unnecessary deep nesting and branch-heavy functions.
+
 ## [1.5.0] - 2026-09-28
 
 ### Changed

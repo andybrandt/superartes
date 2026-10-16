@@ -34,6 +34,7 @@ git diff {BASE_SHA}..{HEAD_SHA}
 - Proper error handling?
 - Type safety (if applicable)?
 - DRY principle followed?
+- No unnecessary cyclomatic complexity (deep nesting, branch-heavy functions)?
 - Edge cases handled?
 
 **Architecture:**
