@@ -33,15 +33,33 @@ same-model fallback is degraded, not independent.
 
 Compose a contextual prompt covering project role, document paths, review focus,
 re-review history, permission to explore read-only context, and collaborative
-feedback. Do not impose a response limit, prescribe conclusions, or over-template
-the review.
+feedback. Include a short summary of the product's purpose, intended users and
+scale, and roadmap, when known. Do not impose a response limit, prescribe
+conclusions, or over-template the review. The goal is feedback that improves the
+document, not approval.
 
 Focus a spec review on architectural soundness, completeness, internal
-consistency, feasibility, YAGNI, DRY, and better alternatives. Focus a plan
-review on spec alignment, task decomposition, buildability, step completeness,
-and ordering. Calibrate the reviewer: a missing requirement is an issue, "I would
-phrase this differently" is not. For a re-review, say what changed, which earlier
-points were addressed, and which were declined and why.
+consistency, feasibility, YAGNI, DRY, use of proven design patterns and good
+practices suited to the problem, and better alternatives. Focus a plan review on
+spec alignment, task decomposition, buildability, step completeness, ordering,
+and whether each task includes appropriate tests.
+
+Calibrate the reviewer: a missing requirement, logic error, security weakness, or
+uncovered edge case is an issue; "I would phrase it differently" or "I would
+design it differently" without a concrete reason is not.
+
+Ask the reviewer whether the design is proportionate to the project:
+- Is anything more complex than the requirements need?
+- Does it fit the project's current scale (users, data size, environment)? A
+  single-person helper tool and a high-traffic production system warrant
+  different standards.
+- Would it block future directions stated by the user or in project documents?
+- Is every new dependency, library, or API necessary?
+- Does it add special cases, modes, or configuration branches the requirements
+  don't need?
+
+For a re-review, say what changed, which earlier points were addressed, and which
+were declined and why.
 
 ## Invocation
 
