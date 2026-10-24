@@ -135,6 +135,10 @@ After writing the complete plan, look at the spec with fresh eyes and check the 
 
 If you find issues, fix them inline. No need to re-review — just fix and move on. If you find a spec requirement with no task, add the task.
 
+## Confidence in plan assessment  
+
+Asses your confidence in the plan as created on the scale of 0-100%, where 100% means you are fully certain executing as planned will deliver all the changes and not introduce any new bugs (errors). Include this confidence number when you will later present the plan to the user. 
+
 ## External Review
 
 After self-review, invoke `superartes:external-review` with:
@@ -146,7 +150,9 @@ After self-review, invoke `superartes:external-review` with:
 
 After the external review is processed, commit the plan using `superartes:commit-message` to prepare the relevant commit message. Then ask the user to review the plan before offering execution options:
 
-> "Plan written and committed to `<path>`. Please review it and let me know if you want to make any changes before we proceed to execution."
+> "Plan written and committed to `<path>`. Please review it and let me know if you want to make any changes before we proceed to execution. My confidence level in this plan is <confidence>."
+
+If the confidence is lower than 90% add brief explanation why it is so. 
 
 Wait for the user's response. If they request changes, make them, re-run self-review, and re-run external review. Only proceed to execution handoff once the user approves.
 
