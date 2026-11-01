@@ -36,7 +36,8 @@ Recorded so that later work does not reopen them without new information. The pl
 | **A companion executor skill** (for example `working-from-a-handover`) | Unnecessary. A short brief plus checks at the two ends of the existing cycle make any session an executor. A second skill would add something to trigger, and briefs and skill versions could drift apart. |
 | **Relying on the executor to remember to report** | A long executor session may be compacted, and the instruction from the start can be lost. The report is instead triggered by `finishing-a-development-branch`, which every cycle ends with and which is loaded fresh when invoked. |
 | **A local "pending" marker file in tracker mode** | The tracker already holds the brief. The executor finds it from the `Delivery brief:` line in its own plan, so a local copy of the state is not needed. |
-| **Identifying the PBI at finishing from the branch name, or from any spec or plan in the repository** | Specs and plans are committed on trunk and accumulate, so a repository-wide match can tie ordinary work to an unrelated PBI. The branch may already be gone after a merge. Identity comes only from the plan executed in this session. |
+| **Identifying the PBI at finishing from the branch name, or from any spec or plan in the repository** | Specs and plans are committed on trunk and accumulate, so a repository-wide match can tie ordinary work to an unrelated PBI. The branch may already be gone after a merge. Identity comes from the plan executed in this session, then the task-list reminder, then (file mode) a pending skeleton confirmed by the user. |
+| **Handover steps written inline in `finishing-a-development-branch/SKILL.md`** | That skill loads at the end of every cycle. Inline conditional detail costs tokens on every finish, and makes Claude likelier to ask about acceptance on ordinary work. Hence a one-line gate and a supporting file. |
 | **Treating every `PBI:` line as a handover** | Ordinary tracker-linked work also carries `PBI:` metadata. Only a `Delivery brief:` line is positive evidence of managed delivery. |
 | **Epic shaping inside this skill** | Shaping has a different trigger (it is useful without delivery) and a different output (backlog items, not a delivered PBI). It would also add tokens to a skill that is loaded every time the user returns to the manager. |
 
@@ -112,7 +113,7 @@ Both are templates in the skill folder (`brief-template.md`, `report-template.md
 3. **Context:** the epic goal in one or two sentences; relevant results of earlier PBIs, linked to their specs or reports rather than retold; known constraints.
 4. **Branch base:** the decision made with the user. The executor copies it into the plan header (see below).
 5. **Scope guard:** other PBIs in the epic are out of scope. Work that spills into them is recorded in the report, not done.
-6. **How to work:** follow the Superartes cycle (brainstorming → spec → plan → execution → finishing); put the `PBI:` and `Delivery brief:` lines in the spec and plan headers, and the `Branch base:` line in the plan header; as a first action, create a task-list item "Report to Delivery Manager after user acceptance" as a backup reminder; work with the user throughout; the PBI is done only when the user accepts it.
+6. **How to work:** follow the Superartes cycle (brainstorming → spec → plan → execution → finishing); put the `PBI:` and `Delivery brief:` lines in the spec and plan headers, and the `Branch base:` line in the plan header; as a first action, create a task-list item "Report to Delivery Manager after user acceptance — brief: \<brief reference\>" as a backup reminder (it carries the reference so it is enough on its own; in Claude Code the task tools may be switched off, so this is a backup, never the only signal); work with the user throughout; the PBI is done only when the user accepts it.
 7. **Report template** (tracker mode; in file mode the brief points to the skeleton file).
 
 **Report** (heading "Executor report"):
@@ -141,13 +142,29 @@ Each change is conditional and phrased so an agent on non-epic work can skip it 
 3. **`using-feature-branches`**: if the plan header has a `Branch base:` line, create the branch from that base instead of detecting trunk.
 4. **`finishing-a-development-branch`**:
    - **Step 2:** if the executed plan has a `Branch base:` line, use it as the base for the review scope and the merge/PR target, instead of detected trunk.
-   - **New Step 2.6, handover check** (before the options, while the branch still exists):
-     - Identify the handover only from the `Delivery brief:` line of the plan executed in this session. The task-list reminder from the brief is the backup signal. Never search the repository for other specs or plans. **If there is no such line, there is no handover. Finish as today and ask nothing.**
+   - **New Step 2.6, handover check** (before the options, while the branch still exists). `SKILL.md` gets only a **one-line gate**: if the executed plan has a `Delivery brief:` line, the task list holds a Delivery Manager reminder, or `docs/handovers/` contains a report with `Status: awaiting executor`, read `handover.md` in this skill's directory and follow it; otherwise continue to Step 3. All handover detail lives in the new supporting file `skills/finishing-a-development-branch/handover.md`, so ordinary finishing never loads it.
+   - **`handover.md`** contains Step 2.6 and Step 5:
+     - Identify the brief, trying in order:
+       1. the `Delivery brief:` line of the plan executed in this session;
+       2. the task-list reminder, which carries the brief reference;
+       3. file mode only: a pending skeleton under `docs/handovers/`. **Confirm with the user** that it belongs to this work before using it.
+
+       Do not infer the brief from other specs or plans in the repository, since old ones accumulate on trunk. If nothing is found or the user does not confirm, there is no handover: return to Step 3.
      - Check that the brief is still pending (no terminal report). If it is, ask the user whether they accept the PBI as done.
      - **Not accepted:** stop finishing. No integration, no report; the work continues on the branch.
      - **Accepted:** continue to Step 3 as normal.
      - **Discard chosen at Step 3:** ask whether the PBI is abandoned; if so, write an `abandoned` report instead.
    - **New Step 5, handover report** (after Step 4, when the integration state is known; only if Step 2.6 found an accepted handover): fill in the report, naming the brief it answers, and post it (a comment, or the file with `Status: complete`). Then print the return instruction for the user, for example *"Go back to the Delivery Manager and say: completed PBI \<ID\>, report at \<link\>"*.
+
+## Writing the prose for both model families
+
+The skills are executed by Claude (Claude Code) and GPT models (Codex) alike, and they read prose differently. The implementation must hold to these rules:
+
+- **Imperative numbered steps, not declarative policy.** Protocol definitions in this spec, such as "a brief is pending while it has no terminal report", become checks the agent performs ("Read the brief's comments. If an Executor report naming this brief says `complete` or `abandoned`, stop: nothing is pending.").
+- **Keep conditional detail out of frequently loaded skills.** Claude tends to act on prominent instructions even when their condition is false. A one-line gate plus a supporting file (as in `finishing-a-development-branch/handover.md`) keeps non-epic work unaffected. There is precedent for both platforms: `external-review` already sends Codex to its supporting file `invoking-reviewers.md`.
+- **No emphatic capitals or bold on conditional rules.** Emphasis raises salience for Claude regardless of the condition. Reserve it for unconditional prohibitions, such as the manager never writing product code.
+- **Never block an agent's natural recovery move without giving a safe alternative.** Claude searches files when unsure, so a bare "never search" turns lost context into a silently skipped report. The scoped, user-confirmed search of `docs/handovers/` is that safe alternative.
+- **The execute-the-prose review (Testing, item 6) runs with both families:** once with a Claude agent and once with a Codex agent, because a passage that works for one can fail for the other.
 
 ## User documentation
 
@@ -177,7 +194,7 @@ Following the repository's test-first approach to skills (`writing-skills`):
    - A fresh manager given only persisted state (`epic.md` plus handover files) resumes the outstanding action and issues no duplicate brief.
    - A retried PBI: an old `abandoned` report does not hide the new brief's pending state.
    - Compaction: simulate lost conversation context while the executed plan remains; the handover is still found.
-6. **Execute-the-prose review.** A reviewer performs the manager and executor roles on the toy epic and reports where the instructions stop making sense.
+6. **Execute-the-prose review, with both model families.** A Claude reviewer and a Codex reviewer each perform the manager and executor roles on the toy epic and report where the instructions stop making sense. Also check that a compacted Claude executor without task tools still finds a file-mode handover through the `docs/handovers/` fallback.
 7. **Manual end-to-end, run by the user**, with a checklist in the plan:
    - File mode: the full loop on two tiny PBIs, through cleanup.
    - Tracker mode, in an Asana test project with one epic and two PBIs:
