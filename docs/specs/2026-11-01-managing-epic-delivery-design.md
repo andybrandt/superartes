@@ -62,13 +62,13 @@ The headings and status values in this table are a protocol and must be used ver
 
 `NN` numbers are never reused or renumbered, even when the remaining backlog is reordered or a PBI is retried (a retry gets a new number and a new brief).
 
-In file mode the manager asks once per epic whether the handover files are committed or git-ignored, and records the answer in `epic.md`. Once chosen, an epic's mode is recorded and kept for the rest of the epic. A resumed manager does not switch modes because connector availability changed.
+In file mode the manager asks once per epic whether the handover files are committed or git-ignored, and records the answer in `epic.md`. If they are committed, **only the manager commits them, and only on trunk** (switching to it first). The executor saves its report without committing it. Otherwise a report committed on a kept or PR branch would be invisible on trunk, where the manager reads. Uncommitted handover files carry over when the branch is switched. Once chosen, an epic's mode is recorded and kept for the rest of the epic. A resumed manager does not switch modes because connector availability changed.
 
 **`epic.md` minimum contents** (file mode): the epic goal; each PBI's definition, acceptance criteria and dependencies; the approved sequence; conventions (storage mode); and a dispatch log linking every issued brief and report with its state. Anything established during intake must end up here, not only in the conversation.
 
 **Connector precondition.** In tracker mode both sessions need the tracker connector. Because an executor without the connector cannot read the brief, the precondition lives in the **printed prompt**, not in the brief: *"Work on PBI \<link\>. Read the Delivery Manager brief in its comments through the tracker connector; if you cannot read it, stop and tell me."* If posting the report fails later, the executor shows the completed report to the user with the recovery action. It never switches to file mode silently or claims the handover succeeded.
 
-**Brief references.** Every brief has a stable reference: the tracker comment's link or ID, or the brief's file path. The executor records it as a `Delivery brief:` line in its spec and plan, and the report names the brief it answers. A brief is **pending** while it has no terminal report (`complete` or `abandoned`).
+**Brief references.** Every brief has a stable reference: `<tracker> <PBI ID> / brief NN` in tracker mode (the comment's heading is `Delivery Manager brief NN`; no comment URL is needed), or the brief's file path in file mode. The executor records it as a `Delivery brief:` line in its spec and plan, and the report names the brief it answers. A brief is **pending** while it has no terminal report (`complete` or `abandoned`).
 
 ## Lifecycle
 
@@ -150,11 +150,11 @@ Each change is conditional and phrased so an agent on non-epic work can skip it 
        3. file mode only: a pending skeleton under `docs/handovers/`. **Confirm with the user** that it belongs to this work before using it.
 
        Do not infer the brief from other specs or plans in the repository, since old ones accumulate on trunk. If nothing is found or the user does not confirm, there is no handover: return to Step 3.
-     - Check that the brief is still pending (no terminal report). If it is, ask the user whether they accept the PBI as done.
-     - **Not accepted:** stop finishing. No integration, no report; the work continues on the branch.
-     - **Accepted:** continue to Step 3 as normal.
-     - **Discard chosen at Step 3:** ask whether the PBI is abandoned; if so, write an `abandoned` report instead.
-   - **New Step 5, handover report** (after Step 4, when the integration state is known; only if Step 2.6 found an accepted handover): fill in the report, naming the brief it answers, and post it (a comment, or the file with `Status: complete`). Then print the return instruction for the user, for example *"Go back to the Delivery Manager and say: completed PBI \<ID\>, report at \<link\>"*.
+     - Check that the brief is still pending (no terminal report). If it is, ask the user one question with three answers: accept the PBI as done / not yet / abandon the PBI.
+     - **Not yet:** stop finishing. No integration, no report; the work continues on the branch.
+     - **Accept:** continue to Step 3 as normal. If the user then chooses Discard, confirm that the PBI is abandoned instead and treat it as Abandon.
+     - **Abandon:** continue to Step 3 (the user may still keep or discard the branch); the report will be `abandoned`.
+   - **New Step 5, handover report** (after Step 4, when the integration state is known; only if Step 2.6 recorded Accept or Abandon): fill in the report, naming the brief it answers, and post it (a comment, or the file with `Status: complete` or `Status: abandoned`). Then print the return instruction for the user, for example *"Go back to the Delivery Manager and say: completed PBI \<ID\>, report at \<link\>"*.
 
 ## Writing the prose for both model families
 
@@ -185,8 +185,9 @@ Following the repository's test-first approach to skills (`writing-skills`):
 3. **Triggering.** Add prompts to `tests/skill-triggering/` (for example "act as delivery manager for epic X") that must load `managing-epic-delivery`, and add the skill to `run-all.sh`.
 4. **Finishing handover steps.**
    - With a `Delivery brief:` line pointing at a pending skeleton, the agent asks for acceptance before the options, then fills in the report, including the integration state, and prints the return instruction.
-   - Acceptance rejected: no integration happens and the branch remains.
-   - Discard chosen: an `abandoned` report results, not a `complete` one.
+   - "Not yet": no integration happens, the branch remains, and the report stays `awaiting executor`.
+   - "Abandon": an `abandoned` report results, not a `complete` one.
+   - No plan path given, but a pending skeleton exists under `docs/handovers/`: the agent asks the user to confirm it belongs to this work before using it.
    - **Regressions** (finishing must behave exactly as before and ask no extra question):
      - no plan metadata at all;
      - ordinary tracker-linked work with a `PBI:` line but no `Delivery brief:` line.
