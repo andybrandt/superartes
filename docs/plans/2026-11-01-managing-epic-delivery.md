@@ -19,6 +19,7 @@
 - The session executing this plan runs on the **installed** Superartes 1.5.1 plugin, not on this working tree. Editing `finishing-a-development-branch` and `using-feature-branches` here does not change the skills that drive this execution.
 - Live tests run `claude -p` with `--plugin-dir <repository root>` and switch the installed copy off with `--settings '{"enabledPlugins":{"superartes@superartes":false}}'`, so only the working-tree skills load. Task 1 verifies that.
 - **Cost control.** Live tests take minutes each and cost tokens. Every live script accepts `ONLY=<scenario>` to run one scenario. RED steps run only the named scenario; GREEN steps run the whole script once. Live tests write only under `${TMPDIR:-/tmp}/superartes-tests/managing-epic-delivery/` and print their output directory.
+- **Testing approach.** Prose behaves probabilistically, so a live test is a sample of behaviour, not a proof. Tests follow risk: static checks cover only protocol strings shared across files and the word limit; live tests cover the main paths and assert on git and file outcomes wherever possible; the rarer paths are covered by the two-family prose review (Task 8) and the pilot (Task 9). Live tests are a development tool, run when the skill they cover changes, not a permanent suite. Do not add scenarios beyond those in this plan.
 - **Infrastructure failures are not results.** `run_turn` aborts the script with exit status 2 and the words `INFRASTRUCTURE FAILURE` when `claude` exits non-zero or produces no successful result event (timeout, CLI error, turn limit). Fix the environment and re-run; never read such a run as a pass or a fail of the skill.
 - Prose rules from the spec ("Writing the prose for both model families"): imperative numbered steps, conditional detail out of frequently loaded skills, no bold or capitals on conditional rules, never forbid a recovery move without a safe alternative. Copy the skill texts below exactly; they were written to these rules and to the word budget.
 - A live check can fail because the model phrased something unexpectedly rather than because the skill is wrong. Before changing a skill to satisfy a failing live check, read the transcript: `jq -r 'select(.type=="assistant") | .message.content[]? | select(.type=="text") | .text' <file>.jsonl`. Fix the skill when the behaviour is wrong; widen the check's pattern only when the behaviour is right and the pattern too narrow, and report every such pattern change to the controller.
@@ -28,15 +29,14 @@
 | Path | Change | Responsibility |
 |---|---|---|
 | `tests/managing-epic-delivery/lib.sh` | Create | Counters, `run_turn` (headless Claude, working-tree plugin only, infrastructure check), transcript helpers |
-| `tests/managing-epic-delivery/fixtures.sh` | Create | Toy repository, file-mode epics, plans, specs, branches |
+| `tests/managing-epic-delivery/fixtures.sh` | Create | Toy repository, file-mode epics, plans, branches |
 | `tests/managing-epic-delivery/test-fixtures.sh` | Create | Deterministic self-test of the fixtures |
 | `tests/managing-epic-delivery/test-plugin-isolation.sh` | Create | Live: proves the working-tree plugin is the one loaded |
-| `tests/managing-epic-delivery/static-checks.sh` | Create, grows per task | Deterministic protocol-string and budget checks |
-| `tests/managing-epic-delivery/test-manager.sh` | Create | Live: intake and dispatch, resume with a pending or an unprocessed report |
-| `tests/managing-epic-delivery/test-plan-metadata.sh` | Create | Live: spec and plan headers written with the right lines |
+| `tests/managing-epic-delivery/static-checks.sh` | Create, grows per task | Deterministic checks: shared protocol strings, word limit |
+| `tests/managing-epic-delivery/test-manager.sh` | Create | Live: intake and dispatch, decomposition, resume with a pending brief |
 | `tests/managing-epic-delivery/test-branch-base.sh` | Create | Live: `using-feature-branches` honours `Branch base:` and carries spec and plan |
-| `tests/managing-epic-delivery/test-finishing-handover.sh` | Create | Live: accept, not yet, abandon, retry, fallback |
-| `tests/managing-epic-delivery/test-finishing-options.sh` | Create | Live: ordinary finishing unchanged; stacked base targeted |
+| `tests/managing-epic-delivery/test-finishing-handover.sh` | Create | Live: accept, fallback |
+| `tests/managing-epic-delivery/test-finishing-options.sh` | Create | Live: ordinary finishing unchanged, sampled several times |
 | `tests/managing-epic-delivery/README.md` | Create | How to run the suite; baseline observations |
 | `tests/skill-triggering/prompts/managing-epic-delivery.txt` | Create | Triggering prompt |
 | `tests/skill-triggering/run-all.sh` | Modify | Add the skill; `pipefail` so failures are counted |
@@ -101,27 +101,6 @@ check "plan carries Delivery brief" grep -q "Delivery brief:" "$dir/finish/docs/
 check "on the feature branch" test "$(git -C "$dir/finish" branch --show-current)" = "feature/add-tag-command"
 check_not "feature not merged" git -C "$dir/finish" merge-base --is-ancestor feature/add-tag-command master
 
-# Completed but unprocessed: report 01 complete, dispatch log still says awaiting
-make_toy_repo "$dir/completed"
-add_epic "$dir/completed" completed
-check "completed report says complete" grep -qx "Status: complete" "$dir/completed/$EPIC/01-report-add-tag-command.md"
-check "dispatch log still awaiting" grep -q "awaiting report" "$dir/completed/$EPIC/epic.md"
-
-# Discovered: the report names new work the epic does not list yet
-make_toy_repo "$dir/discovered"
-add_epic "$dir/discovered" discovered
-check "report names the discovered PBI" grep -q "^export-tags:" "$dir/discovered/$EPIC/01-report-add-tag-command.md"
-check_not "epic does not list it yet" grep -q "export-tags" "$dir/discovered/$EPIC/epic.md"
-
-# Retry: brief 01 abandoned, brief 02 retries the same PBI and is pending
-make_toy_repo "$dir/retry"
-add_epic "$dir/retry" retry
-add_plan "$dir/retry" delivery-retry
-make_feature_branch "$dir/retry"
-check "first attempt abandoned" grep -qx "Status: abandoned" "$dir/retry/$EPIC/01-report-add-tag-command.md"
-check "retry pending" grep -qx "Status: awaiting executor" "$dir/retry/$EPIC/02-report-add-tag-command.md"
-check "retry plan points at brief 02" grep -q "Delivery brief:\*\* $EPIC/02-brief-add-tag-command.md" "$dir/retry/docs/plans/2026-11-01-add-tag-command.md"
-
 # Ordinary work: no metadata, no handovers
 make_toy_repo "$dir/plain"
 add_plan "$dir/plain" plain
@@ -142,19 +121,6 @@ make_branch_base_fixture "$dir/base"
 check "base plan names the Branch base" grep -q "Branch base:\*\* feature/add-tag-command" "$dir/base/docs/plans/2026-11-02-list-by-tag.md"
 check "base fixture is on master" test "$(git -C "$dir/base" branch --show-current)" = "master"
 check_not "base branch is unmerged" git -C "$dir/base" merge-base --is-ancestor feature/add-tag-command master
-
-# Stacked finishing: feature/list-by-tag cut from feature/add-tag-command, plan carried over
-make_toy_repo "$dir/stacked"
-make_stacked_finishing_fixture "$dir/stacked"
-check "stacked branch checked out" test "$(git -C "$dir/stacked" branch --show-current)" = "feature/list-by-tag"
-check "stacked branch contains its base" git -C "$dir/stacked" merge-base --is-ancestor feature/add-tag-command feature/list-by-tag
-check "plan present on stacked branch" git -C "$dir/stacked" cat-file -e feature/list-by-tag:docs/plans/2026-11-02-list-by-tag.md
-
-# Plan-metadata fixture: brief 02 with a branch base, spec with metadata lines
-make_toy_repo "$dir/meta"
-add_base_brief_and_spec "$dir/meta"
-check "brief 02 names its base" grep -q "branch feature/add-tag-command" "$dir/meta/$EPIC/02-brief-list-by-tag.md"
-check "spec carries Delivery brief" grep -q "Delivery brief:\*\* $EPIC/02-brief-list-by-tag.md" "$dir/meta/docs/specs/2026-11-02-list-by-tag-design.md"
 
 finish_suite
 ```
@@ -397,11 +363,10 @@ Fill in $TOY_EPIC_DIR/$nn-report-add-tag-command.md.
 EOF
 }
 
-# write_report <NN> <file> <pending|complete|abandoned>
+# write_report <NN> <file>: a report skeleton awaiting its executor.
 write_report() {
-    local nn="$1" file="$2" state="$3"
-    if [ "$state" = "pending" ]; then
-        cat > "$file" <<EOF
+    local nn="$1" file="$2"
+    cat > "$file" <<EOF
 # Executor report
 
 Answers brief: $TOY_EPIC_DIR/$nn-brief-add-tag-command.md
@@ -428,50 +393,12 @@ User acceptance: <date> — <the user accepted the PBI as done | the user abando
 
 <candidate new PBIs, or "None">
 EOF
-    else
-        local acceptance="the user accepted the PBI as done"
-        local integration="merged into master"
-        if [ "$state" = "abandoned" ]; then
-            acceptance="the user abandoned the PBI"
-            integration="branch discarded"
-        fi
-        cat > "$file" <<EOF
-# Executor report
-
-Answers brief: $TOY_EPIC_DIR/$nn-brief-add-tag-command.md
-Status: $state
-User acceptance: 2026-11-01 — $acceptance
-
-## Delivered
-
-\`src/tag.sh\` stores lowercase tags. Spec docs/specs/2026-11-01-add-tag-command-design.md, plan docs/plans/2026-11-01-add-tag-command.md, branch feature/add-tag-command.
-
-## Integration state
-
-$integration
-
-## Deviations
-
-None
-
-## Impacts on later work
-
-Tags live in \`~/.notes/tags\`, one "id tag" pair per line; list-by-tag should read that file.
-
-## Discovered work
-
-None
-EOF
-    fi
 }
 
-# add_epic <repo> <thin|fresh|dispatched|completed|discovered|retry>: a file-mode epic, committed on master.
+# add_epic <repo> <thin|fresh|dispatched>: a file-mode epic, committed on master.
 #   thin:       a goal only, no PBIs yet
 #   fresh:      backlog only, no Mode line
 #   dispatched: approved sequence; brief 01 issued; report 01 pending
-#   completed:  as dispatched, but report 01 is complete and not yet processed
-#   discovered: as completed, and the report names new work that must precede list-by-tag
-#   retry:      brief 01 abandoned; brief 02 retries add-tag-command and is pending
 add_epic() {
     local repo="$1" variant="$2"
     local epic_dir="$repo/$TOY_EPIC_DIR"
@@ -489,37 +416,16 @@ add_epic() {
             write_pbis with-criteria
             printf '\n## Sequence (approved)\n\n1. add-tag-command: the other PBIs build on it\n2. list-by-tag: depends on add-tag-command\n3. tag-colours: cosmetic, last\n\n'
             printf '## Dispatch log\n\n| NN | PBI | Brief | Report | State |\n|----|-----|-------|--------|-------|\n'
-            if [ "$variant" = "retry" ]; then
-                printf '| 01 | add-tag-command | 01-brief-add-tag-command.md | 01-report-add-tag-command.md | abandoned |\n'
-                printf '| 02 | add-tag-command | 02-brief-add-tag-command.md | 02-report-add-tag-command.md | brief issued, awaiting report |\n'
-            else
-                printf '| 01 | add-tag-command | 01-brief-add-tag-command.md | 01-report-add-tag-command.md | brief issued, awaiting report |\n'
-            fi
+            printf '| 01 | add-tag-command | 01-brief-add-tag-command.md | 01-report-add-tag-command.md | brief issued, awaiting report |\n'
         } > "$epic_dir/epic.md"
         write_brief 01 "$epic_dir/01-brief-add-tag-command.md"
-        case "$variant" in
-            dispatched) write_report 01 "$epic_dir/01-report-add-tag-command.md" pending ;;
-            completed)  write_report 01 "$epic_dir/01-report-add-tag-command.md" complete ;;
-            discovered)
-                write_report 01 "$epic_dir/01-report-add-tag-command.md" complete
-                # The report's last line is the "None" under Discovered work; replace it
-                { sed '$d' "$epic_dir/01-report-add-tag-command.md"
-                  printf 'export-tags: write all tags to one file. It must come before list-by-tag, which will read that file.\n'
-                } > "$epic_dir/report.tmp"
-                mv "$epic_dir/report.tmp" "$epic_dir/01-report-add-tag-command.md"
-                ;;
-            retry)
-                write_report 01 "$epic_dir/01-report-add-tag-command.md" abandoned
-                write_brief 02 "$epic_dir/02-brief-add-tag-command.md"
-                write_report 02 "$epic_dir/02-report-add-tag-command.md" pending
-                ;;
-        esac
+        write_report 01 "$epic_dir/01-report-add-tag-command.md"
     fi
     git -C "$repo" add -A
     git -C "$repo" commit -q -m "Add toy epic ($variant)"
 }
 
-# add_plan <repo> <delivery|delivery-retry|pbi-only|plain>: an executed plan, committed on master.
+# add_plan <repo> <delivery|pbi-only|plain>: an executed plan, committed on master.
 add_plan() {
     local repo="$1" variant="$2"
     local metadata=""
@@ -528,9 +434,6 @@ add_plan() {
         delivery)
             metadata="**PBI:** add-tag-command — \"Add a tag to a note\"
 **Delivery brief:** $TOY_EPIC_DIR/01-brief-add-tag-command.md" ;;
-        delivery-retry)
-            metadata="**PBI:** add-tag-command — \"Add a tag to a note\"
-**Delivery brief:** $TOY_EPIC_DIR/02-brief-add-tag-command.md" ;;
         pbi-only)
             metadata='**PBI:** Asana 1209876543210 — "Add a tag to a note" (https://app.asana.com/0/0/1209876543210)' ;;
     esac
@@ -604,61 +507,12 @@ make_branch_base_fixture() {
     git -C "$repo" add -A
     git -C "$repo" commit -q -m "Add list-by-tag plan"
 }
-
-# make_stacked_finishing_fixture <repo>: feature/list-by-tag cut from feature/add-tag-command,
-# with the plan carried over and one implementation commit; left checked out.
-make_stacked_finishing_fixture() {
-    local repo="$1"
-    make_branch_base_fixture "$repo"
-    git -C "$repo" checkout -q -b feature/list-by-tag feature/add-tag-command
-    git -C "$repo" checkout -q master -- docs/plans/2026-11-02-list-by-tag.md
-    git -C "$repo" commit -q -m "Carry the list-by-tag plan onto its branch"
-    printf '#!/usr/bin/env bash\necho "notes tagged $1"\n' > "$repo/src/list.sh"
-    git -C "$repo" add -A
-    git -C "$repo" commit -q -m "Add list command"
-}
-
-# add_base_brief_and_spec <repo>: brief 02 for list-by-tag with branch base
-# feature/add-tag-command, and its spec carrying the PBI and Delivery brief lines.
-add_base_brief_and_spec() {
-    local repo="$1"
-    mkdir -p "$repo/$TOY_EPIC_DIR" "$repo/docs/specs"
-    cat > "$repo/$TOY_EPIC_DIR/02-brief-list-by-tag.md" <<EOF
-# Delivery Manager brief 02
-
-Epic: Notes tagging ($TOY_EPIC_DIR/epic.md)
-PBI: list-by-tag — "List notes with a tag"
-Position: 2 of 3
-Brief reference: $TOY_EPIC_DIR/02-brief-list-by-tag.md
-
-## What to deliver
-
-\`notes.sh list --tag <tag>\` prints only the notes with that tag.
-
-## Branch base
-
-branch feature/add-tag-command
-EOF
-    cat > "$repo/docs/specs/2026-11-02-list-by-tag-design.md" <<EOF
-# List By Tag Design
-
-**PBI:** list-by-tag — "List notes with a tag"
-**Delivery brief:** $TOY_EPIC_DIR/02-brief-list-by-tag.md
-
-## Design
-
-Add \`src/list.sh\`. It reads \`~/.notes/tags\` (one "id tag" pair per line, written by
-\`src/tag.sh\`) and prints the ids of notes carrying the requested tag.
-EOF
-    git -C "$repo" add -A
-    git -C "$repo" commit -q -m "Add list-by-tag brief and spec"
-}
 ````
 
 - [ ] **Step 5: Run the self-test and watch it pass**
 
 Run: `bash tests/managing-epic-delivery/test-fixtures.sh`
-Expected: every line `[PASS]`, then `Passed: 30  Failed: 0`, exit status 0.
+Expected: every line `[PASS]`, then `Passed: 18  Failed: 0`, exit status 0.
 
 - [ ] **Step 6: Sabotage-check the harness**
 
@@ -722,8 +576,8 @@ Create `tests/managing-epic-delivery/static-checks.sh`. Later tasks insert their
 
 ```bash
 #!/usr/bin/env bash
-# Deterministic checks that the managing-epic-delivery protocol strings stay consistent
-# across the skills, and that the skill stays within its word budget.
+# Deterministic checks: the protocol strings several files must agree on, and the word limit.
+# Do not add checks that only confirm a sentence was pasted in.
 set -uo pipefail
 source "$(dirname "$0")/lib.sh"
 SKILL="$PLUGIN_DIR/skills/managing-epic-delivery"
@@ -740,15 +594,6 @@ check "SKILL.md under 650 words" test "$(wc -w < "$SKILL/SKILL.md")" -lt 650
 check "SKILL.md names the plan heading" grep -q "Delivery Manager plan" "$SKILL/SKILL.md"
 check "SKILL.md names the brief heading" grep -q "Delivery Manager brief NN" "$SKILL/SKILL.md"
 check "SKILL.md names the report heading" grep -q "Executor report" "$SKILL/SKILL.md"
-check "SKILL.md waits for sequence approval" grep -q "wait for approval" "$SKILL/SKILL.md"
-check "SKILL.md loops over PBIs" grep -q "Repeat from step 6" "$SKILL/SKILL.md"
-check "SKILL.md checks the backlog is complete" grep -q "Check that the backlog is complete" "$SKILL/SKILL.md"
-check "SKILL.md offers subtasks or a flat backlog" grep -q "subtasks or a flat backlog" "$SKILL/SKILL.md"
-check "SKILL.md allows reading code" grep -q "may \*\*read\*\* the code" "$SKILL/SKILL.md"
-check "SKILL.md closes the epic" grep -q "close the epic" "$SKILL/SKILL.md"
-check "SKILL.md always records conventions" grep -q "Always record the conventions" "$SKILL/SKILL.md"
-check "SKILL.md applies accepted mid-epic changes" grep -q "record the revised sequence" "$SKILL/SKILL.md"
-check "SKILL.md notices a rearranged backlog" grep -q "ask which to follow" "$SKILL/SKILL.md"
 check "SKILL.md resumes from a Mode line" grep -q "\`Mode:\` line" "$SKILL/SKILL.md"
 check "brief heading" grep -q "^# Delivery Manager brief NN" "$SKILL/brief-template.md"
 check "brief asks for the Delivery brief line" grep -q "Delivery brief:" "$SKILL/brief-template.md"
@@ -771,9 +616,7 @@ Create `tests/managing-epic-delivery/test-manager.sh`:
 # Live scenarios for managing-epic-delivery in file mode.
 #   intake:            setup, intake, approval, first dispatch (three turns)
 #   decompose:         an epic with no PBIs: proposes them, adds them only once accepted
-#   discovered:        a report names new work: proposed, then added and sequenced once accepted
 #   resume-pending:    a fresh manager finds brief 01 still awaiting its report
-#   resume-completed:  a fresh manager finds report 01 complete but unprocessed
 set -uo pipefail
 source "$(dirname "$0")/lib.sh"
 source "$(dirname "$0")/fixtures.sh"
@@ -851,32 +694,6 @@ if want decompose; then
     check "leaves product code alone" product_code_untouched "$repo" "$fixture_sha"
 fi
 
-if want discovered; then
-    repo="$dir/discovered"
-    epic="$repo/docs/handovers/toy-epic/epic.md"
-    make_toy_repo "$repo"
-    add_epic "$repo" discovered
-    fixture_sha="$(git -C "$repo" rev-parse HEAD)"
-    session="$(new_session_id)"
-
-    run_turn "$repo" "$session" first "$dir/discovered-1.jsonl" \
-        "Act as Delivery Manager for the epic in docs/handovers/toy-epic/."
-    echo "Discovered work, turn 1 (proposal):"
-    check "proposes the discovered PBI" text_matches "export-tags" "$dir/discovered-1.jsonl"
-    check_not "does not add it before acceptance" grep -q "export-tags" "$epic"
-    check_not "writes no second brief" compgen -G "$repo/docs/handovers/toy-epic/0[2-9]-brief-*.md"
-
-    run_turn "$repo" "$session" resume "$dir/discovered-2.jsonl" \
-        "Accepted: add export-tags to the epic, before list-by-tag in the sequence. Do not dispatch anything yet."
-    sequence="$(sed -n '/^## Sequence/,/^## Dispatch/p' "$epic")"
-    export_line="$(grep -n "export-tags" <<< "$sequence" | head -1 | cut -d: -f1)"
-    list_line="$(grep -n "list-by-tag" <<< "$sequence" | head -1 | cut -d: -f1)"
-    echo "Discovered work, turn 2 (accepted):"
-    check "revised sequence puts it before list-by-tag" test "$export_line" -lt "$list_line"
-    check_not "dispatches nothing" compgen -G "$repo/docs/handovers/toy-epic/0[2-9]-brief-*.md"
-    check "leaves product code alone" product_code_untouched "$repo" "$fixture_sha"
-fi
-
 if want resume-pending; then
     repo="$dir/resume-pending"
     make_toy_repo "$repo"
@@ -889,22 +706,6 @@ if want resume-pending; then
     check "briefs unchanged (none added, none rewritten)" test "$(brief_snapshot "$repo/docs/handovers/toy-epic")" = "$before"
     check "names PBI 01 as outstanding" text_matches "add-tag-command" "$dir/resume-pending.jsonl"
     check "report still pending" grep -qx "Status: awaiting executor" "$repo/docs/handovers/toy-epic/01-report-add-tag-command.md"
-    check "leaves product code alone" product_code_untouched "$repo" "$fixture_sha"
-fi
-
-if want resume-completed; then
-    repo="$dir/resume-completed"
-    make_toy_repo "$repo"
-    add_epic "$repo" completed
-    fixture_sha="$(git -C "$repo" rev-parse HEAD)"
-    brief01="$(sha256sum < "$repo/docs/handovers/toy-epic/01-brief-add-tag-command.md")"
-    run_turn "$repo" "$(new_session_id)" first "$dir/resume-completed.jsonl" \
-        "Act as Delivery Manager for the epic in docs/handovers/toy-epic/."
-    echo "Resume with an unprocessed report:"
-    check "marks PBI 01 done in the dispatch log" bash -c "grep -E '^\| *01 ' '$repo/docs/handovers/toy-epic/epic.md' | grep -qiE 'done|complete'"
-    check "brief 01 unchanged" test "$(sha256sum < "$repo/docs/handovers/toy-epic/01-brief-add-tag-command.md")" = "$brief01"
-    check "no second brief numbered 01" test "$(compgen -G "$repo/docs/handovers/toy-epic/01-brief-*.md" | wc -l)" -eq 1
-    check "mentions the report's impact on list-by-tag" text_matches "list-by-tag" "$dir/resume-completed.jsonl"
     check "leaves product code alone" product_code_untouched "$repo" "$fixture_sha"
 fi
 
@@ -938,26 +739,30 @@ tests/managing-epic-delivery/test-fixtures.sh   # toy-repository fixtures
 Run the isolation check first; the rest assume it passed.
 
 ```bash
-for t in plugin-isolation manager plan-metadata branch-base finishing-handover finishing-options; do
+for t in plugin-isolation manager branch-base finishing-handover finishing-options; do
     bash "tests/managing-epic-delivery/test-$t.sh" || break
 done
 ```
 
+These are a development tool: a live test is one sample of how a model behaved, not a proof.
+Run a script when the skill it covers changes, using the table below.
+
 `ONLY=<scenario>` runs one scenario of a script, for example
 `ONLY=accept bash tests/managing-epic-delivery/test-finishing-handover.sh`.
+`RUNS=<n>` sets how many times `test-finishing-options.sh` samples each case (default 3).
 Exit status 2 with `INFRASTRUCTURE FAILURE` means the model run itself failed (timeout,
 CLI error, turn limit): fix the environment and re-run.
 
 | Skill text changed | Re-run |
 |---|---|
 | `managing-epic-delivery/*` | `test-manager.sh` |
-| `brainstorming`, `writing-plans` hooks | `test-plan-metadata.sh` |
+| `brainstorming`, `writing-plans` hooks | static checks only; covered by the prose review and the pilot |
 | `using-feature-branches` | `test-branch-base.sh` |
 | `finishing-a-development-branch/*` | `test-finishing-handover.sh`, `test-finishing-options.sh` |
 
 Live tests run in throw-away repositories under
 `${TMPDIR:-/tmp}/superartes-tests/managing-epic-delivery/` and print that directory.
-Tracker mode (Asana, JIRA) has no automated coverage; see the manual checklist in
+Tracker mode (Asana, JIRA) has no automated coverage; it is covered by the pilot in
 `docs/plans/2026-11-01-managing-epic-delivery.md`, Task 9.
 
 ## Baseline without the skill (2026-11-01)
@@ -1118,7 +923,7 @@ User acceptance: <date> — <the user accepted the PBI as done | the user abando
 - [ ] **Step 8: Run the static checks (GREEN)**
 
 Run: `bash tests/managing-epic-delivery/static-checks.sh`
-Expected: `Passed: 27  Failed: 0`. The `SKILL.md` text above measures 649 words; a word-count failure means the file differs from Step 5.
+Expected: `Passed: 18  Failed: 0`. The `SKILL.md` text above measures 649 words; a word-count failure means the file differs from Step 5.
 
 - [ ] **Step 9: Run the manager scenarios (GREEN)**
 
@@ -1140,26 +945,9 @@ git commit   # message via superartes:commit-message
 **Files:**
 - Create: `tests/skill-triggering/prompts/managing-epic-delivery.txt`
 - Modify: `tests/skill-triggering/run-all.sh` (`set -e` line; the `SKILLS=(` array)
-- Modify: `tests/managing-epic-delivery/static-checks.sh`
 - Possibly modify: `skills/managing-epic-delivery/SKILL.md` (frontmatter `description` only)
 
-- [ ] **Step 1: Add the static checks**
-
-Insert directly above the final `finish_suite` line of `tests/managing-epic-delivery/static-checks.sh`:
-
-```bash
-# --- Triggering (Task 3) ---
-check "triggering prompt exists" test -f "$PLUGIN_DIR/tests/skill-triggering/prompts/managing-epic-delivery.txt"
-check "run-all includes the skill" grep -q '"managing-epic-delivery"' "$PLUGIN_DIR/tests/skill-triggering/run-all.sh"
-check "run-all counts piped failures" grep -q "^set -eo pipefail" "$PLUGIN_DIR/tests/skill-triggering/run-all.sh"
-```
-
-- [ ] **Step 2: Run them and watch them fail**
-
-Run: `bash tests/managing-epic-delivery/static-checks.sh`
-Expected: the three new checks fail; `Failed: 3`.
-
-- [ ] **Step 3: Write the prompt**
+- [ ] **Step 1: Write the prompt**
 
 Create `tests/skill-triggering/prompts/managing-epic-delivery.txt`:
 
@@ -1167,7 +955,7 @@ Create `tests/skill-triggering/prompts/managing-epic-delivery.txt`:
 Our "Notes tagging" epic has three backlog items listed in docs/handovers/toy-epic/epic.md. I want you to be the delivery manager for it: work out the order, then hand the items one at a time to fresh sessions that will build them with me.
 ```
 
-- [ ] **Step 4: Fix `run-all.sh` failure counting and add the skill**
+- [ ] **Step 2: Fix `run-all.sh` failure counting and add the skill**
 
 `run-all.sh` runs `if "$SCRIPT_DIR/run-test.sh" ... | tee ...; then`. Without `pipefail` the `if` sees the exit status of `tee`, so a failed triggering test is counted as passed. In `tests/skill-triggering/run-all.sh`, replace:
 
@@ -1198,16 +986,16 @@ with:
 )
 ```
 
-- [ ] **Step 5: Run the static checks and the triggering test (GREEN)**
+- [ ] **Step 3: Run the triggering test**
 
-Run: `bash tests/managing-epic-delivery/static-checks.sh && (cd tests/skill-triggering && ./run-test.sh managing-epic-delivery prompts/managing-epic-delivery.txt)`
-Expected: static `Failed: 0`. Triggering prints `✅ PASS: Skill 'managing-epic-delivery' was triggered`. The installed 1.5.1 plugin has no skill of this name, so `run-test.sh` needs no isolation here. If the skill does not trigger, read the logged first response, then adjust only the frontmatter `description` in `SKILL.md` (it must still start with "Use when" and describe only triggering conditions), re-run the static checks for the word budget, and re-run the trigger test.
+Run: `cd tests/skill-triggering && ./run-test.sh managing-epic-delivery prompts/managing-epic-delivery.txt`
+Expected: it prints `✅ PASS: Skill 'managing-epic-delivery' was triggered`. The installed 1.5.1 plugin has no skill of this name, so `run-test.sh` needs no isolation here. If the skill does not trigger, read the logged first response, then adjust only the frontmatter `description` in `SKILL.md` (it must still start with "Use when" and describe only triggering conditions), re-run the static checks for the word budget, and re-run the trigger test.
 
-- [ ] **Step 6: Commit (releasable checkpoint)**
+- [ ] **Step 4: Commit (releasable checkpoint)**
 
 ```bash
 git add tests/skill-triggering/prompts/managing-epic-delivery.txt tests/skill-triggering/run-all.sh \
-        tests/managing-epic-delivery/static-checks.sh skills/managing-epic-delivery/SKILL.md
+        skills/managing-epic-delivery/SKILL.md
 git commit   # message via superartes:commit-message
 ```
 
@@ -1216,7 +1004,6 @@ git commit   # message via superartes:commit-message
 ### Task 4: Header metadata in `brainstorming` and `writing-plans`
 
 **Files:**
-- Create: `tests/managing-epic-delivery/test-plan-metadata.sh`
 - Modify: `tests/managing-epic-delivery/static-checks.sh`
 - Modify: `skills/brainstorming/SKILL.md` (two bullets)
 - Modify: `skills/writing-plans/SKILL.md` (after the plan-header code block)
@@ -1236,59 +1023,12 @@ check "writing-plans names the Delivery brief line" grep -q "Delivery brief:\*\*
 check "writing-plans names the Branch base line" grep -q "Branch base:\*\*" "$PLANS"
 ```
 
-- [ ] **Step 2: Write the live artifact test**
+- [ ] **Step 2: Run them and watch them fail**
 
-Create `tests/managing-epic-delivery/test-plan-metadata.sh`. The prompts do not mention any header line; the skills must supply them.
+Run: `bash tests/managing-epic-delivery/static-checks.sh`
+Expected: the five new checks fail. Behaviour is covered by the prose review (Task 8) and the pilot (Task 9), not by a live test here.
 
-```bash
-#!/usr/bin/env bash
-# Live: spec and plan headers written by an agent carry the metadata lines the skills require.
-#   spec-header: work from a tracker item, no brief -> PBI line, no Delivery brief line
-#   plan-header: spec with PBI and Delivery brief; brief sets a branch base -> all three lines
-set -uo pipefail
-source "$(dirname "$0")/lib.sh"
-source "$(dirname "$0")/fixtures.sh"
-require_live_tools
-
-echo "=== managing-epic-delivery: plan metadata ==="
-dir="$(scratch_dir)"
-echo "Output: $dir"
-
-if want spec-header; then
-    repo="$dir/spec"
-    make_toy_repo "$repo"
-    run_turn "$repo" "$(new_session_id)" first "$dir/spec.jsonl" \
-        "This work comes from Asana task 1209876543210, \"Add a tag to a note\" (https://app.asana.com/0/0/1209876543210). The design is already agreed: src/tag.sh stores a lowercase tag per note. Following the superartes:brainstorming conventions for the spec document, write only the spec's title and header to docs/specs/2026-11-01-add-tag-command-design.md, plus one sentence of design. Do not ask questions, do not commit, do not run reviews."
-    spec="$repo/docs/specs/2026-11-01-add-tag-command-design.md"
-    echo "Spec header:"
-    check "spec written" test -f "$spec"
-    check "spec has the PBI line" grep -qE '^\*\*PBI:\*\* Asana 1209876543210' "$spec"
-    check_not "spec has no Delivery brief line" grep -q "Delivery brief:" "$spec"
-fi
-
-if want plan-header; then
-    repo="$dir/plan"
-    make_toy_repo "$repo"
-    add_base_brief_and_spec "$repo"
-    run_turn "$repo" "$(new_session_id)" first "$dir/plan.jsonl" \
-        "Following superartes:writing-plans, write only the plan document's header (no tasks) for the spec docs/specs/2026-11-02-list-by-tag-design.md, saving it to docs/plans/2026-11-02-list-by-tag.md. Do not ask questions, do not commit, do not run reviews."
-    plan="$repo/docs/plans/2026-11-02-list-by-tag.md"
-    echo "Plan header:"
-    check "plan written" test -f "$plan"
-    check "plan has the PBI line" grep -q '^\*\*PBI:\*\* list-by-tag' "$plan"
-    check "plan has the Delivery brief line" grep -q '^\*\*Delivery brief:\*\* docs/handovers/toy-epic/02-brief-list-by-tag.md' "$plan"
-    check "plan has the Branch base line" grep -q '^\*\*Branch base:\*\* `\?feature/add-tag-command' "$plan"
-fi
-
-finish_suite
-```
-
-- [ ] **Step 3: Run both and watch them fail**
-
-Run: `chmod +x tests/managing-epic-delivery/test-plan-metadata.sh && bash tests/managing-epic-delivery/static-checks.sh; ONLY=plan-header bash tests/managing-epic-delivery/test-plan-metadata.sh`
-Expected: the five new static checks fail. The plan-header scenario fails at least "plan has the Branch base line", because nothing yet tells the agent to read the brief for a base.
-
-- [ ] **Step 4: Edit `brainstorming`, project context**
+- [ ] **Step 3: Edit `brainstorming`, project context**
 
 In `skills/brainstorming/SKILL.md`, replace:
 
@@ -1303,7 +1043,7 @@ with:
 - If the request names a tracker item (Asana, JIRA, ...), read the item and its comments. A comment headed `Delivery Manager brief` is your starting context; follow it alongside this skill.
 ```
 
-- [ ] **Step 5: Edit `brainstorming`, spec header**
+- [ ] **Step 4: Edit `brainstorming`, spec header**
 
 In the same file, replace:
 
@@ -1318,7 +1058,7 @@ with:
   - Header metadata, only when it applies: `**PBI:** <tracker> <ID> — "<title>" (<link>)` for work from a tracker item; `**Delivery brief:** <brief reference>` for work started by a Delivery Manager brief
 ```
 
-- [ ] **Step 6: Edit `writing-plans`**
+- [ ] **Step 5: Edit `writing-plans`**
 
 In `skills/writing-plans/SKILL.md`, replace:
 
@@ -1340,16 +1080,15 @@ with:
 ## Task Structure
 ````
 
-- [ ] **Step 7: Run both (GREEN)**
+- [ ] **Step 6: Run the static checks (GREEN)**
 
-Run: `bash tests/managing-epic-delivery/static-checks.sh && bash tests/managing-epic-delivery/test-plan-metadata.sh`
-Expected: both end with `Failed: 0`.
+Run: `bash tests/managing-epic-delivery/static-checks.sh`
+Expected: `Failed: 0`.
 
-- [ ] **Step 8: Commit (releasable checkpoint)**
+- [ ] **Step 7: Commit (releasable checkpoint)**
 
 ```bash
-git add skills/brainstorming/SKILL.md skills/writing-plans/SKILL.md \
-        tests/managing-epic-delivery/static-checks.sh tests/managing-epic-delivery/test-plan-metadata.sh
+git add skills/brainstorming/SKILL.md skills/writing-plans/SKILL.md tests/managing-epic-delivery/static-checks.sh
 git commit   # message via superartes:commit-message
 ```
 
@@ -1362,16 +1101,13 @@ git commit   # message via superartes:commit-message
 - Modify: `tests/managing-epic-delivery/static-checks.sh`
 - Modify: `skills/using-feature-branches/SKILL.md` (Step 2, Step 3, Common Mistakes, Red Flags)
 
-- [ ] **Step 1: Add the static checks**
+- [ ] **Step 1: Add the static check**
 
 Insert above the final `finish_suite` line of `static-checks.sh`:
 
 ```bash
 # --- Branch base (Task 5) ---
-UFB="$PLUGIN_DIR/skills/using-feature-branches/SKILL.md"
-check "using-feature-branches honours Branch base" grep -q "Branch base:\*\*" "$UFB"
-check "using-feature-branches carries spec and plan" grep -q "git checkout <trunk> -- <spec path> <plan path>" "$UFB"
-check_not "no unconditional pull rule left" grep -qx -- "- Pull latest base branch" "$UFB"
+check "using-feature-branches honours Branch base" grep -q "Branch base:\*\*" "$PLUGIN_DIR/skills/using-feature-branches/SKILL.md"
 ```
 
 - [ ] **Step 2: Write the live test**
@@ -1404,7 +1140,7 @@ finish_suite
 - [ ] **Step 3: Run both and watch them fail**
 
 Run: `chmod +x tests/managing-epic-delivery/test-branch-base.sh && bash tests/managing-epic-delivery/static-checks.sh; bash tests/managing-epic-delivery/test-branch-base.sh`
-Expected: the three new static checks fail; the live test fails "new branch contains the base branch" or "plan committed on the new branch". If it passes anyway, the agent improvised; note that in the report and continue, since the edit makes the behaviour explicit.
+Expected: the new static check fails; the live test fails "new branch contains the base branch" or "plan committed on the new branch". If it passes anyway, the agent improvised; note that in the report and continue, since the edit makes the behaviour explicit.
 
 - [ ] **Step 4: Edit Step 2**
 
@@ -1508,12 +1244,7 @@ check "gate points to handover.md" grep -q "handover.md" "$FIN/SKILL.md"
 check "gate checks the Delivery brief line" grep -q "Delivery brief:\*\*" "$FIN/SKILL.md"
 check "gate checks pending reports" grep -q "Status: awaiting executor" "$FIN/SKILL.md"
 check "Step 2 honours Branch base" grep -q "Branch base:\*\*" "$FIN/SKILL.md"
-check "local merge pulls only with an upstream" grep -q "# Pull latest (skip when the base has no upstream)" "$FIN/SKILL.md"
-check "PR targets the base branch" grep -q "gh pr create --base <base-branch>" "$FIN/SKILL.md"
 check "handover finds tracker reports by first line" grep -q "first line is \`# Executor report\`" "$FIN/handover.md"
-check "handover offers three answers" grep -q "accept / not yet / abandon" "$FIN/handover.md"
-check "handover leaves commits to the manager" grep -q "Do not commit it" "$FIN/handover.md"
-check "handover keeps failed deliveries outstanding" grep -q "keep the task-list reminder open" "$FIN/handover.md"
 check_not "SKILL.md does not inline the acceptance question" grep -q "not yet / abandon" "$FIN/SKILL.md"
 ```
 
@@ -1524,8 +1255,7 @@ Create `tests/managing-epic-delivery/test-finishing-handover.sh`:
 ```bash
 #!/usr/bin/env bash
 # Live: finishing with a pending Delivery Manager handover (file mode).
-#   accept, notyet, abandon: two turns each
-#   retry:    brief 01 abandoned earlier, brief 02 pending -> asks about the retry
+#   accept:   two turns: acceptance asked first, then the report is written
 #   fallback: fresh session, no plan named, no task-list reminder -> confirms ownership first
 set -uo pipefail
 source "$(dirname "$0")/lib.sh"
@@ -1576,42 +1306,6 @@ if want accept; then
     check "prints the return instruction" text_matches "Delivery Manager" "$dir/accept-2.jsonl"
 fi
 
-if want notyet; then
-    report="$EPIC/01-report-add-tag-command.md"
-    repo="$(new_repo notyet dispatched delivery)"
-    session="$(new_session_id)"
-    run_turn "$repo" "$session" first "$dir/notyet-1.jsonl" "$FINISH_PROMPT"
-    echo "Not yet, turn 1:"
-    first_turn_checks "$repo" "$dir/notyet-1.jsonl" "$report"
-    run_turn "$repo" "$session" resume "$dir/notyet-2.jsonl" "Not yet."
-    echo "Not yet, turn 2:"
-    check "report still pending" grep -qx "Status: awaiting executor" "$repo/$report"
-    check_not "nothing merged" git -C "$repo" merge-base --is-ancestor feature/add-tag-command master
-    check "still on the feature branch" test "$(git -C "$repo" branch --show-current)" = "feature/add-tag-command"
-fi
-
-if want abandon; then
-    report="$EPIC/01-report-add-tag-command.md"
-    repo="$(new_repo abandon dispatched delivery)"
-    session="$(new_session_id)"
-    run_turn "$repo" "$session" first "$dir/abandon-1.jsonl" "$FINISH_PROMPT"
-    echo "Abandon, turn 1:"
-    first_turn_checks "$repo" "$dir/abandon-1.jsonl" "$report"
-    run_turn "$repo" "$session" resume "$dir/abandon-2.jsonl" "Abandon this PBI. Then option 3: keep the branch as-is."
-    echo "Abandon, turn 2:"
-    check "report abandoned" grep -qx "Status: abandoned" "$repo/$report"
-    check "every section filled" report_filled "$repo/$report"
-    check_not "nothing merged" git -C "$repo" merge-base --is-ancestor feature/add-tag-command master
-fi
-
-if want retry; then
-    repo="$(new_repo retry retry delivery-retry)"
-    run_turn "$repo" "$(new_session_id)" first "$dir/retry-1.jsonl" "$FINISH_PROMPT"
-    echo "Retry:"
-    first_turn_checks "$repo" "$dir/retry-1.jsonl" "$EPIC/02-report-add-tag-command.md"
-    check "abandoned first attempt untouched" grep -qx "Status: abandoned" "$repo/$EPIC/01-report-add-tag-command.md"
-fi
-
 if want fallback; then
     repo="$(new_repo fallback dispatched delivery)"
     run_turn "$repo" "$(new_session_id)" first "$dir/fallback-1.jsonl" \
@@ -1632,9 +1326,8 @@ Create `tests/managing-epic-delivery/test-finishing-options.sh`:
 
 ```bash
 #!/usr/bin/env bash
-# Live: finishing without a handover.
-#   plain, pbi-only: behaves as before (all four options, no acceptance question)
-#   stacked:         a plan with Branch base targets that branch, not trunk
+# Live: finishing without a handover behaves as before: all four options, no acceptance
+# question. A stray question is a matter of how often, so each case is sampled RUNS times.
 set -uo pipefail
 source "$(dirname "$0")/lib.sh"
 source "$(dirname "$0")/fixtures.sh"
@@ -1653,39 +1346,30 @@ four_options() {
 
 for variant in plain pbi-only; do
     if want "$variant"; then
-        repo="$dir/$variant"
-        make_toy_repo "$repo"
-        add_plan "$repo" "$variant"
-        make_feature_branch "$repo"
-        run_turn "$repo" "$(new_session_id)" first "$dir/$variant.jsonl" "$FINISH_PROMPT"
-        echo "$variant:"
-        check "offers all four options" four_options "$dir/$variant.jsonl"
-        check_not "no acceptance question" text_matches "accept .*as done|accept (the|this) PBI|not yet / abandon" "$dir/$variant.jsonl"
-        check_not "nothing merged yet" git -C "$repo" merge-base --is-ancestor feature/add-tag-command master
+        for run in $(seq 1 "${RUNS:-3}"); do
+            repo="$dir/$variant-$run"
+            make_toy_repo "$repo"
+            add_plan "$repo" "$variant"
+            make_feature_branch "$repo"
+            run_turn "$repo" "$(new_session_id)" first "$dir/$variant-$run.jsonl" "$FINISH_PROMPT"
+            echo "$variant, run $run:"
+            check "offers all four options" four_options "$dir/$variant-$run.jsonl"
+            check_not "no acceptance question" text_matches "accept .*as done|accept (the|this) PBI|not yet / abandon" "$dir/$variant-$run.jsonl"
+            check_not "nothing merged yet" git -C "$repo" merge-base --is-ancestor feature/add-tag-command master
+        done
     fi
 done
-
-if want stacked; then
-    repo="$dir/stacked"
-    make_toy_repo "$repo"
-    make_stacked_finishing_fixture "$repo"
-    run_turn "$repo" "$(new_session_id)" first "$dir/stacked.jsonl" \
-        "I executed the plan docs/plans/2026-11-02-list-by-tag.md in this session; all its tasks are done and committed on this branch. Finish the development branch. Skip the external code review."
-    echo "stacked:"
-    check "offers to merge into the base branch" text_matches "Merge back to \`?feature/add-tag-command" "$dir/stacked.jsonl"
-    check_not "does not target trunk" text_matches "Merge back to \`?master" "$dir/stacked.jsonl"
-fi
 
 finish_suite
 ```
 
 - [ ] **Step 4: Record RED, cheaply**
 
-Run: `chmod +x tests/managing-epic-delivery/test-finishing-*.sh && bash tests/managing-epic-delivery/static-checks.sh; ONLY=accept bash tests/managing-epic-delivery/test-finishing-handover.sh; bash tests/managing-epic-delivery/test-finishing-options.sh`
+Run: `chmod +x tests/managing-epic-delivery/test-finishing-*.sh && bash tests/managing-epic-delivery/static-checks.sh; ONLY=accept bash tests/managing-epic-delivery/test-finishing-handover.sh; RUNS=1 bash tests/managing-epic-delivery/test-finishing-options.sh`
 Expected:
-- eleven of the twelve new static checks fail (the `check_not` one already passes);
+- six of the seven new static checks fail (the `check_not` one already passes);
 - the accept scenario fails at least "options not offered before acceptance" and the turn-2 report checks;
-- in the options test, `plain` and `pbi-only` **pass**. They run against the unchanged skill, which shows the regression checks are sound. If they fail now, fix the test, not the skill. `stacked` fails (the current Step 2 targets trunk).
+- `plain` and `pbi-only` **pass**. They run against the unchanged skill, which shows the regression checks are sound. If they fail now, fix the test, not the skill.
 
 - [ ] **Step 5: Edit Step 2 of `finishing-a-development-branch`**
 
@@ -1843,7 +1527,7 @@ Run this after Step 4.
 - [ ] **Step 12: Run all three (GREEN)**
 
 Run: `bash tests/managing-epic-delivery/static-checks.sh && bash tests/managing-epic-delivery/test-finishing-handover.sh; bash tests/managing-epic-delivery/test-finishing-options.sh`
-Expected: all three end with `Failed: 0`. `plain` and `pbi-only` must still pass. If they now fail, the agent is acting on the handover text for ordinary work, which is exactly the over-application risk the gate exists to prevent. Make the gate wording plainer; do not add emphasis. Narration such as "no handover pending" is acceptable; a question is not.
+Expected: all three end with `Failed: 0`, with `plain` and `pbi-only` sampled three times each. A stray question in even one run counts as a failure. If they fail, the agent is acting on the handover text for ordinary work, which is exactly the over-application risk the gate exists to prevent. Make the gate wording plainer; do not add emphasis. Narration such as "no handover pending" is acceptable; a question is not.
 
 - [ ] **Step 13: Commit (releasable checkpoint)**
 
@@ -1861,26 +1545,8 @@ git commit   # message via superartes:commit-message
 **Files:**
 - Modify: `README.md` (before `## What's Inside`; Skills Library, Collaboration list)
 - Modify: `CLAUDE.md` (Repository Structure `tests/` list; Running Tests)
-- Modify: `tests/managing-epic-delivery/static-checks.sh`
 
-- [ ] **Step 1: Add the static checks**
-
-Insert above the final `finish_suite` line of `static-checks.sh`:
-
-```bash
-# --- Documentation (Task 7) ---
-check "README has the epic section" grep -q "^## Delivering an Epic" "$PLUGIN_DIR/README.md"
-check "README shows the slash command" grep -q "/superartes:managing-epic-delivery" "$PLUGIN_DIR/README.md"
-check "README lists the skill" grep -q "^- \*\*managing-epic-delivery\*\* - " "$PLUGIN_DIR/README.md"
-check "CLAUDE.md lists the test suite" grep -q "tests/managing-epic-delivery" "$PLUGIN_DIR/CLAUDE.md"
-```
-
-- [ ] **Step 2: Run them and watch them fail**
-
-Run: `bash tests/managing-epic-delivery/static-checks.sh`
-Expected: `Failed: 4`.
-
-- [ ] **Step 3: Add the README section**
+- [ ] **Step 1: Add the README section**
 
 In `README.md`, replace:
 
@@ -1913,7 +1579,7 @@ For work larger than one feature, such as an epic of several PBIs in Asana or JI
 ## What's Inside
 ```
 
-- [ ] **Step 4: Add the skills-list line**
+- [ ] **Step 2: Add the skills-list line**
 
 In `README.md`, replace:
 
@@ -1928,7 +1594,7 @@ with:
 - **managing-epic-delivery** - Delivery Manager role: refines and decomposes an epic, sequences its PBIs and briefs a fresh executor session for each, through tracker comments or handover files
 ```
 
-- [ ] **Step 5: Update `CLAUDE.md`**
+- [ ] **Step 3: Update `CLAUDE.md`**
 
 In `CLAUDE.md`, replace:
 
@@ -1956,8 +1622,8 @@ with:
 ```bash
 tests/managing-epic-delivery/static-checks.sh   # deterministic, seconds
 tests/managing-epic-delivery/test-fixtures.sh   # deterministic, seconds
-# Live claude -p scenarios, minutes each; isolation check first (see the suite's README.md):
-for t in plugin-isolation manager plan-metadata branch-base finishing-handover finishing-options; do
+# Live claude -p scenarios, minutes each; run when the skill they cover changes (see the suite's README.md):
+for t in plugin-isolation manager branch-base finishing-handover finishing-options; do
     bash "tests/managing-epic-delivery/test-$t.sh" || break
 done
 ```
@@ -1965,15 +1631,10 @@ done
 ### Skill triggering tests:
 ````
 
-- [ ] **Step 6: Run the static checks (GREEN)**
-
-Run: `bash tests/managing-epic-delivery/static-checks.sh`
-Expected: `Failed: 0`.
-
-- [ ] **Step 7: Commit (releasable checkpoint)**
+- [ ] **Step 4: Commit (releasable checkpoint)**
 
 ```bash
-git add README.md CLAUDE.md tests/managing-epic-delivery/static-checks.sh
+git add README.md CLAUDE.md
 git commit   # message via superartes:commit-message
 ```
 
@@ -1984,7 +1645,7 @@ git commit   # message via superartes:commit-message
 **Files:**
 - Possibly modify: any skill file from Tasks 2-6, according to findings
 
-This task is controller work: dispatching the reviewers and triaging what they find. Skill fixes go to an implementer.
+This task is controller work: dispatching the reviewers and triaging what they find. Skill fixes go to an implementer. It is also the main coverage for the paths that have no live test: not yet, abandon, retry, a late report, an unprocessed report, discovered work, a stacked branch base and the plan-header metadata.
 
 - [ ] **Step 1: Prepare a review sandbox**
 
@@ -2010,9 +1671,9 @@ Read these files from <REPO>:
 Then walk through these roles against the toy repository <SANDBOX>, step by step. At each step state exactly what you would do: commands, files written with their full contents, messages to the user. Do not modify any file. Assume you have no task-list tool.
 
 1. Delivery Manager, file mode: setup, intake of docs/handovers/toy-epic/epic.md, the sequence proposal, and the first dispatch after the user approves the sequence with handover files committed and branch base trunk.
-2. Executor: a fresh session given the printed prompt. Name the header lines its spec and plan get, and how its feature branch is created.
-3. Executor at finishing time, three times: the user answers accept and then keeps the branch; the user answers not yet; the session was compacted and the plan path is unknown.
-4. Delivery Manager again, in a new session told "completed": verification and the next step.
+2. Executor: a fresh session given the printed prompt. Name the header lines its spec and plan get, and how its feature branch is created, both from trunk and from an earlier PBI's unmerged branch. Then a session working on an ordinary Asana task with no brief: which header lines its spec gets.
+3. Executor at finishing time, five times: the user answers accept and then keeps the branch; the user answers not yet; the user answers abandon; the session was compacted and the plan path is unknown; the plan has a `Branch base:` line naming an earlier PBI's branch.
+4. Delivery Manager again, in a new session told "completed": verification and the next step. Then a new session that finds a complete report nobody has processed, whose "Discovered work" names a PBI that must come before the next one: what is proposed, applied and recorded.
 5. Delivery Manager and executor when PBI 01's brief was abandoned and the PBI is retried as brief 02: which brief is pending, and what happens when a late report for brief 01 arrives.
 6. The same Delivery Manager in tracker mode (an Asana epic), from setup through dispatch and receiving the report to closing the epic: what is asked, what is posted where, where the sequence is recorded for subtasks, for a flat backlog and for a tracker with no ordering, what happens when the user has rearranged the PBIs before a dispatch, and how the executor finds the brief and the report template. Then a fresh manager in that tracker with no ordering: how it recovers the sequence from the plan comment and picks the next PBI.
 7. Delivery Manager given an epic with a goal but no PBIs, and later a PBI too large for one executor: what is proposed, and what is changed only after the user accepts it.
@@ -2062,37 +1723,28 @@ git commit   # message via superartes:commit-message
 
 ---
 
-### Task 9: Manual end-to-end checkpoint (the user)
+### Task 9: Pilot on a real epic (the user)
 
 **Files:** none, unless defects are found.
 
-This task is a checklist for the user. Present it, wait for the results, and turn every failure into a fix task (test first, as above) before finishing the branch.
+This task is for the user. It is the only test with an interactive session, a real tracker and real work, so it replaces a scripted checklist. Keep the feature branch unmerged during the pilot, and turn every defect into a fix (test first where a live test exists) before finishing the branch.
 
-**File mode** (a scratch copy of any small repository):
+- [ ] Choose a small real epic in Asana, with at least three PBIs.
+- [ ] Run the manager and each executor against this working tree, with this feature branch checked out: `claude --plugin-dir /home/andy/comp/superartes-andy`.
+- [ ] Deliver the epic as normal, using the loop in the README. Note anything surprising.
 
-- [ ] Write a `docs/handovers/<epic>/epic.md` with two tiny PBIs. Start a session: *"Act as Delivery Manager for the epic in docs/handovers/<epic>/epic.md."* The manager asks about committing the handover files, reports any gaps, proposes an order, and writes no brief before you approve.
-- [ ] In a second scratch epic with a goal but no PBIs, the manager proposes PBIs and adds them only after you accept. Ask it to split one PBI; the same applies.
-- [ ] Approve. A brief and a pending report appear, committed on trunk if you chose that, and the manager prints the executor prompt.
-- [ ] In a fresh session, paste the prompt. Brainstorming starts from the brief. The spec and plan headers carry `PBI:` and `Delivery brief:`. If the task tools are on, a "Report to Delivery Manager…" item exists.
-- [ ] Finish the branch. Acceptance is asked **before** the merge/PR options. Answer accept and pick an option. The report shows `Status: complete`, the right integration state and every section filled. It is **not** committed, and the return prompt is printed.
-- [ ] Back in the manager, in a brand-new session rather than `/resume`, say "completed". The manager verifies the report, commits the handover files on trunk, marks the PBI done, and proposes the next step.
-- [ ] Give the second PBI a branch base of the first PBI's unmerged branch. The executor's new branch contains that work **and** its own spec and plan. At finishing, it offers to merge back into that branch, not trunk.
-- [ ] Finish the second PBI, then check close-out: an epic summary and the offer to delete the handover folder.
+Watch for these along the way:
 
-**Tracker mode** (an Asana test project with one epic task):
+- [ ] The manager asks about subtasks or a flat backlog, proposes what the epic lacks, and changes the tracker only after you accept.
+- [ ] The "Delivery Manager plan" comment records the conventions and the approved sequence. The tracker's own order matches it.
+- [ ] Rearrange two undispatched PBIs by hand. Before the next dispatch, the manager notices and asks which order to follow.
+- [ ] The printed prompt starts an executor that finds the brief in the comments. Its spec and plan carry the `PBI:` and `Delivery brief:` lines.
+- [ ] At finishing, acceptance is asked **before** the merge/PR options, and a comment starting `# Executor report` appears, with every section filled.
+- [ ] Between PBIs, use a brand-new manager session instead of `/resume`. It picks up correctly, and issues no second brief for a PBI that is still in progress.
+- [ ] Close-out posts the summary you approve and closes the epic.
+- [ ] Ordinary work during the same period finishes with the usual four options and no acceptance question.
 
-- [ ] *"Act as Delivery Manager for epic \<Asana link\>."* The manager asks whether you prefer subtasks or a flat backlog, proposes the PBIs the epic lacks, and creates them only after you accept. Choose subtasks. The "Delivery Manager plan" comment on the epic records the conventions and the approved sequence, and the tracker's own order matches it. The first PBI gets a comment starting `# Delivery Manager brief 01` that ends with the report template.
-- [ ] Start a second epic and choose a flat backlog with a prefix such as "E7". New PBIs sit at the same level as the epic and carry the prefix or tag.
-- [ ] End the session before the first dispatch. In a brand-new session, the manager finds the PBIs from the plan comment, recovers the approved order, and picks the right next PBI.
-- [ ] Rearrange two undispatched PBIs in Asana by hand. Before its next dispatch, the manager notices the difference and asks which order to follow. Your answer is recorded in a new plan comment.
-- [ ] Dispatch a PBI and end the session with its brief pending. A brand-new manager reports it as outstanding and issues no second brief. Post the executor's report, and a further new session processes it.
-- [ ] Accept a PBI that a report discovered. It is created in the right place in the order, and a brand-new session still dispatches it next.
-- [ ] Paste the printed *"Work on PBI \<link\>…"* prompt into a fresh session. Brainstorming reads the brief from the comments. The spec header carries `**PBI:** Asana <ID> — "<title>" (<link>)` and `**Delivery brief:** Asana <ID> / brief 01`.
-- [ ] Finish the branch and accept. A new comment starting `# Executor report` appears on the PBI, with `Answers brief: Asana <ID> / brief 01`.
-- [ ] Finish the last PBI. Close-out posts the summary you approve and closes the epic.
-- [ ] Ordinary Asana-linked work (a spec with only a `PBI:` line, no brief) finishes with the usual four options and no acceptance question.
-
-**Executor without the connector:** paste the executor prompt into a session without the Asana connector. It stops and says it cannot read the brief.
+---
 
 ---
 

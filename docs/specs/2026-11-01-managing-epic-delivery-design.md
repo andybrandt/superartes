@@ -37,6 +37,7 @@ Recorded so that later work does not reopen them without new information. The pl
 | **Relying on the executor to remember to report** | A long executor session may be compacted, and the instruction from the start can be lost. The report is instead triggered by `finishing-a-development-branch`, which every cycle ends with and which is loaded fresh when invoked. |
 | **A local "pending" marker file in tracker mode** | The tracker already holds the brief. The executor finds it from the `Delivery brief:` line in its own plan, so a local copy of the state is not needed. |
 | **Identifying the PBI at finishing from the branch name, or from any spec or plan in the repository** | Specs and plans are committed on trunk and accumulate, so a repository-wide match can tie ordinary work to an unrelated PBI. The branch may already be gone after a merge. Identity comes from the plan executed in this session, then the task-list reminder, then (file mode) a pending skeleton confirmed by the user. |
+| **A live test for every path** | About 35 headless sessions, all Claude, all in file mode, with a harness several times larger than the skill, while real use (interactive, tracker mode) stayed untested. One run of a prose test proves little anyway. Rarer paths are covered by the two-family review and the pilot instead. |
 | **Handover steps written inline in `finishing-a-development-branch/SKILL.md`** | That skill loads at the end of every cycle. Inline conditional detail costs tokens on every finish, and makes Claude likelier to ask about acceptance on ordinary work. Hence a one-line gate and a supporting file. |
 | **Treating every `PBI:` line as a handover** | Ordinary tracker-linked work also carries `PBI:` metadata. Only a `Delivery brief:` line is positive evidence of managed delivery. |
 | **The sequence only in the tracker's own order** | The tracker cannot tell a deliberate re-rank from an accident. The approved sequence is kept in the plan comment too, so the manager can notice a difference and ask which order to follow. The second copy is the point: its drift is the signal. |
@@ -176,46 +177,31 @@ The skills are executed by Claude (Claude Code) and GPT models (Codex) alike, an
 
 ## Testing
 
-Following the repository's test-first approach to skills (`writing-skills`):
+Prose behaves probabilistically, so a live test is a sample of behaviour, not a proof, and live runs are costly. Testing therefore follows risk: deterministic checks where the content really is an interface, live scenarios on the main paths with assertions on git and file outcomes where possible, review for the rarer paths, and a real pilot. Live tests are a development tool, run when the skill they cover changes, not a permanent suite. This keeps the test-first approach of `writing-skills` through the baseline.
 
 1. **Baseline (RED).** In a scratch repository with a file-mode `epic.md` of three small PBIs, ask an agent without the skill to act as Delivery Manager. Record its failures. These become what the skill must close.
-2. **Manager scenario (GREEN).** Same setup, with the skill. Pass criteria:
-   - an intake report listing the gaps;
-   - for an epic with no PBIs, proposed PBIs added only after acceptance;
-   - for work a report discovered, a new PBI added and sequenced only after acceptance;
-   - a proposed sequence awaiting approval;
-   - a brief and a report skeleton written;
-   - the exact executor prompt printed;
-   - no product code touched.
-3. **Triggering.** Add prompts to `tests/skill-triggering/` (for example "act as delivery manager for epic X") that must load `managing-epic-delivery`, and add the skill to `run-all.sh`.
-4. **Finishing handover steps.**
+2. **Manager scenarios (GREEN).** Same setup, with the skill. Pass criteria:
+   - the agent asks about storage and reports the gaps;
+   - a proposed sequence awaits approval, and no brief is written before it;
+   - a brief and a report skeleton are written, and the exact executor prompt is printed;
+   - for an epic with no PBIs, proposed PBIs are added only after acceptance;
+   - no product code is touched.
+3. **Triggering.** Add a prompt to `tests/skill-triggering/` that must load `managing-epic-delivery`, add the skill to `run-all.sh`, and make `run-all.sh` count piped failures.
+4. **Finishing handover.**
    - With a `Delivery brief:` line pointing at a pending skeleton, the agent asks for acceptance before the options, then fills in the report, including the integration state, and prints the return instruction.
-   - "Not yet": no integration happens, the branch remains, and the report stays `awaiting executor`.
-   - "Abandon": an `abandoned` report results, not a `complete` one.
    - No plan path given, but a pending skeleton exists under `docs/handovers/`: the agent asks the user to confirm it belongs to this work before using it.
-   - **Regressions** (finishing must behave exactly as before and ask no extra question):
-     - no plan metadata at all;
-     - ordinary tracker-linked work with a `PBI:` line but no `Delivery brief:` line.
-5. **Manager recovery.**
-   - A fresh manager given only persisted state (`epic.md` plus handover files) resumes the outstanding action and issues no duplicate brief.
-   - A retried PBI: an old `abandoned` report does not hide the new brief's pending state.
-   - Compaction: simulate lost conversation context while the executed plan remains; the handover is still found.
-6. **Execute-the-prose review, with both model families.** A Claude reviewer and a Codex reviewer each perform the manager and executor roles on the toy epic and report where the instructions stop making sense. Also check that a compacted Claude executor without task tools still finds a file-mode handover through the `docs/handovers/` fallback.
-7. **Manual end-to-end, run by the user**, with a checklist in the plan:
-   - File mode: the full loop on two tiny PBIs, through cleanup.
-   - Tracker mode, in an Asana test project with one epic and two PBIs:
-     - the brief comment is posted;
-     - "Work on PBI \<link\>" picks it up through `brainstorming`;
-     - the spec and plan carry the `PBI:` and `Delivery brief:` lines;
-     - the report comment is posted.
-
-   Tracker mode has no automated coverage. It is a manual checkpoint.
-8. **Existing checks stay green.** Run `python3 tests/codex-plugin/validate-codex-plugin.py`. Measure the new `SKILL.md`'s word count when writing it. The limit is 650 words, above the repository's 500-word target, because adjusting the epic and its backlog is part of this skill. It loads only in manager sessions, and its steps are needed at every start, so a supporting file would save nothing.
+   - **Regressions**, sampled three times each because a stray question is a matter of how often: with no plan metadata, and with a `PBI:` line but no `Delivery brief:` line, finishing behaves as before and asks no extra question.
+   - `using-feature-branches` cuts the branch from a plan's `Branch base:` and carries the plan onto it.
+5. **Manager recovery.** A fresh manager given only persisted state, with a brief still pending, reports it as outstanding and issues no duplicate brief.
+6. **Execute-the-prose review, with both model families.** A Claude reviewer and a Codex reviewer each perform the manager and executor roles on the toy epic and report where the instructions stop making sense. This is the main coverage for the paths with no live test: not yet, abandon, retry, a late report, an unprocessed report, discovered work, a stacked branch base and the plan-header metadata. It also checks that a compacted executor without task tools still finds a file-mode handover through the `docs/handovers/` fallback.
+7. **Pilot, run by the user.** The first real Asana epic, delivered with the working-tree plugin on the unmerged feature branch, with a short list of behaviours to watch. It is the only test with an interactive session, a real tracker and real work. Tracker mode has no automated coverage.
+8. **Static checks.** Only the protocol strings that several files must agree on, and the word limit; not checks that merely confirm a sentence was pasted in. Run `python3 tests/codex-plugin/validate-codex-plugin.py`. The `SKILL.md` limit is 650 words, above the repository's 500-word target, because adjusting the epic and its backlog is part of this skill. It loads only in manager sessions, and its steps are needed at every start, so a supporting file would save nothing.
 
 ## Risks
 
 - **Tracker variety.** Status models, hierarchy and ordering differ between Asana, JIRA and others. Mitigation: use the tracker's own mechanism and ask once. The plan comment holds the sequence either way.
 - **Agent ignores the conditional additions.** If an executor skips the `Delivery brief:` line, the report is not triggered. Mitigation: the brief asks for the line explicitly, and the manager's verification in step 5 notices a missing report.
+- **Rarer paths have no live test.** A defect in abandon, retry or a stacked base may first appear in real use. Mitigation: the two-family review walks each one, and recovery is cheap because the user is present and the state is on disk.
 - **Comment noise.** Briefs and reports add comments to tickets that humans also use. Mitigation: fixed headings and concise templates.
 
 ## Future work
