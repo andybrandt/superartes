@@ -102,7 +102,8 @@ add_epic "$dir/finish" dispatched
 add_plan "$dir/finish" delivery
 make_feature_branch "$dir/finish"
 check "dispatched epic has a Mode line" grep -q "^Mode: file" "$dir/finish/$EPIC/epic.md"
-check "dispatched report is pending" grep -qx "Status: awaiting executor" "$dir/finish/$EPIC/01-report-add-tag-command.md"
+check "report visible on the feature branch" grep -qx "Status: awaiting executor" "$dir/finish/$EPIC/01-report-add-tag-command.md"
+check "handover files not tracked" test -z "$(git -C "$dir/finish" ls-files docs/handovers)"
 check "plan carries Delivery brief" grep -q "Delivery brief:" "$dir/finish/docs/plans/2026-11-01-add-tag-command.md"
 check "on the feature branch" test "$(git -C "$dir/finish" branch --show-current)" = "feature/add-tag-command"
 check_not "feature not merged" git -C "$dir/finish" merge-base --is-ancestor feature/add-tag-command master
@@ -247,11 +248,11 @@ text_matches() {
     grep -qiE -- "$pattern" <<< "$text"
 }
 
-# epic_gained_subject_lines <repo> <fixture-sha>: true if epic.md gained a line about tags or
-# notes, in any format. Setup lines such as "Mode: file" do not mention them.
+# epic_gained_subject_lines <original-copy> <epic-file>: true if the epic gained a line about
+# tags or notes, in any format. Setup lines such as "Mode: file" do not mention them.
 epic_gained_subject_lines() {
     local added
-    added="$(git -C "$1" diff "$2" -- docs/handovers/toy-epic/epic.md | grep '^+' | grep -v '^+++')"
+    added="$(diff "$1" "$2" | grep '^>')"
     grep -qiE 'tag|note' <<< "$added"
 }
 
@@ -410,7 +411,8 @@ User acceptance: <date> — <the user accepted the PBI as done | the user abando
 EOF
 }
 
-# add_epic <repo> <thin|fresh|dispatched>: a file-mode epic, committed on master.
+# add_epic <repo> <thin|fresh|dispatched>: a file-mode epic in the working tree, excluded from
+# git as the manager would leave it, so it stays visible on every branch.
 #   thin:       a goal only, no PBIs yet
 #   fresh:      backlog only, no Mode line
 #   dispatched: approved sequence; brief 01 issued; report 01 pending
@@ -427,7 +429,7 @@ add_epic() {
         } > "$epic_dir/epic.md"
     else
         {
-            printf '# Epic: Notes tagging\n\nMode: file\nHandover files: committed\n\nGoal: Let users tag notes and list notes by tag.\n\n'
+            printf '# Epic: Notes tagging\n\nMode: file\n\nGoal: Let users tag notes and list notes by tag.\n\n'
             write_pbis with-criteria
             printf '\n## Sequence (approved)\n\n1. add-tag-command: the other PBIs build on it\n2. list-by-tag: depends on add-tag-command\n3. tag-colours: cosmetic, last\n\n'
             printf '## Dispatch log\n\n| NN | PBI | Brief | Report | State |\n|----|-----|-------|--------|-------|\n'
@@ -436,8 +438,7 @@ add_epic() {
         write_brief 01 "$epic_dir/01-brief-add-tag-command.md"
         write_report 01 "$epic_dir/01-report-add-tag-command.md"
     fi
-    git -C "$repo" add -A
-    git -C "$repo" commit -q -m "Add toy epic ($variant)"
+    printf 'docs/handovers/\n' >> "$repo/.git/info/exclude"
 }
 
 # add_plan <repo> <delivery|pbi-only|plain>: an executed plan, committed on master.
@@ -527,7 +528,7 @@ make_branch_base_fixture() {
 - [ ] **Step 5: Run the self-test and watch it pass**
 
 Run: `bash tests/managing-epic-delivery/test-fixtures.sh`
-Expected: every line `[PASS]`, then `Passed: 18  Failed: 0`, exit status 0.
+Expected: every line `[PASS]`, then `Passed: 19  Failed: 0`, exit status 0.
 
 - [ ] **Step 6: Sabotage-check the harness**
 
@@ -606,7 +607,7 @@ check "brief template exists" test -f "$SKILL/brief-template.md"
 check "report template exists" test -f "$SKILL/report-template.md"
 check "name matches directory" grep -qx "name: managing-epic-delivery" "$SKILL/SKILL.md"
 check "description starts with Use when" grep -q "^description: Use when" "$SKILL/SKILL.md"
-check "SKILL.md under 650 words" test "$(wc -w < "$SKILL/SKILL.md")" -lt 650
+check "SKILL.md under 700 words" test "$(wc -w < "$SKILL/SKILL.md")" -lt 700
 check "SKILL.md names the plan heading" grep -q "Delivery Manager plan" "$SKILL/SKILL.md"
 check "SKILL.md names the brief heading" grep -q "Delivery Manager brief NN" "$SKILL/SKILL.md"
 check "SKILL.md names the report heading" grep -q "Executor report" "$SKILL/SKILL.md"
@@ -651,7 +652,7 @@ if want intake; then
     session="$(new_session_id)"
 
     run_turn "$repo" "$session" first "$dir/intake-1.jsonl" \
-        "Act as Delivery Manager for the epic in docs/handovers/toy-epic/epic.md. Commit the handover files."
+        "Act as Delivery Manager for the epic in docs/handovers/toy-epic/epic.md."
     echo "Intake, turn 1 (before approval):"
     check_not "writes no brief before approval" compgen -G "$epic_dir/[0-9][0-9]-brief-*.md"
     check "leaves product code alone" product_code_untouched "$repo" "$fixture_sha"
@@ -666,6 +667,7 @@ if want intake; then
     check "brief asks for the Delivery brief line" grep -q "Delivery brief:" "$brief"
     check "report skeleton is pending" grep -qx "Status: awaiting executor" "$report"
     check "mode recorded for resume" grep -q "^Mode:" "$epic_dir/epic.md"
+    check "handover files kept out of git" test -z "$(git -C "$repo" ls-files docs/handovers)"
     check "leaves product code alone" product_code_untouched "$repo" "$fixture_sha"
 fi
 
@@ -674,11 +676,12 @@ if want decompose; then
     epic="$repo/docs/handovers/toy-epic/epic.md"
     make_toy_repo "$repo"
     add_epic "$repo" thin
+    cp "$epic" "$dir/epic-before.md"
     fixture_sha="$(git -C "$repo" rev-parse HEAD)"
     run_turn "$repo" "$(new_session_id)" first "$dir/decompose.jsonl" \
-        "Act as Delivery Manager for the epic in docs/handovers/toy-epic/epic.md. Commit the handover files. The goal is clear, so do not ask about it."
+        "Act as Delivery Manager for the epic in docs/handovers/toy-epic/epic.md. The goal is clear, so do not ask about it."
     echo "Decompose (before acceptance):"
-    check_not "adds nothing about the epic's subject" epic_gained_subject_lines "$repo" "$fixture_sha"
+    check_not "adds nothing about the epic's subject" epic_gained_subject_lines "$dir/epic-before.md" "$epic"
     check_not "writes no brief" compgen -G "$repo/docs/handovers/toy-epic/[0-9][0-9]-brief-*.md"
     check "leaves product code alone" product_code_untouched "$repo" "$fixture_sha"
 fi
@@ -782,14 +785,14 @@ As **Delivery Manager** you sequence an epic's PBIs and brief a fresh executor s
 ## Where state lives
 
 - **Tracker mode** (epic in a connected tracker): status in the tracker. PBIs are subtasks of the epic, or a flat backlog linked to it by a tag or name prefix (such as "E7"). An epic comment headed `Delivery Manager plan` records these conventions and the approved sequence (latest wins). Briefs and reports are comments on appropriate PBI headed `Delivery Manager brief NN` and `Executor report`.
-- **File mode** (no connected tracker): `docs/handovers/<epic-slug>/` holds `epic.md`, `NN-brief-<pbi-slug>.md` and `NN-report-<pbi-slug>.md`. If they are committed, only you commit them, on trunk or branch depending on user preference.
+- **File mode** (no connected tracker): `docs/handovers/<epic-slug>/` holds `epic.md`, `NN-brief-<pbi-slug>.md` and `NN-report-<pbi-slug>.md`. They stay out of git until close-out, so that they are visible on every branch.
 
 `NN` is the dispatch number, never reused. Use headings and `Status:` values verbatim.
 
 ## Start
 
 1. Look for a `Delivery Manager plan` comment, or a `Mode:` line in `epic.md`. If found, resume: keep that mode, reconcile briefs, reports and statuses, finish outstanding work first. Never brief a PBI whose last brief has no `complete` or `abandoned` report.
-2. Otherwise choose the mode. File mode: ask whether handover files are committed or git-ignored. Tracker mode: if unclear, ask once how the board shows status and whether the user prefers subtasks or a flat backlog. Always record the conventions (plan comment, or `epic.md` starting with `Mode:`).
+2. Otherwise choose the mode. File mode: add the folder to `.git/info/exclude`; if it is already tracked, `git rm -r --cached` it and commit. Tracker mode: if unclear, ask once how the board shows status and whether the user prefers subtasks or a flat backlog. Always record the conventions (plan comment, or `epic.md` starting with `Mode:`).
 
 ## Intake and sequence
 
@@ -817,7 +820,7 @@ Parallel executors: independent PBIs, separate clones sharing the handover folde
 
 ## Close-out
 
-14. Check results against the epic goal; draft a summary; post it to the epic if approved. Tracker mode: close the epic and ensure all PBIs done or abandoned are marked as closed. File mode: offer to delete the handover folder (`git rm` if committed).
+14. Check results against the epic goal; draft a summary; post it to the epic if approved. Tracker mode: close the epic and ensure all PBIs done or abandoned are marked as closed. File mode: offer to delete the handover folder, or to commit it on a branch the user chooses.
 ````
 
 - [ ] **Step 6: Write `brief-template.md`**
@@ -912,12 +915,12 @@ User acceptance: <date> — <the user accepted the PBI as done | the user abando
 - [ ] **Step 8: Run the static checks (GREEN)**
 
 Run: `bash tests/managing-epic-delivery/static-checks.sh`
-Expected: `Passed: 18  Failed: 0`. The `SKILL.md` text above measures 649 words; a word-count failure means the file differs from Step 5.
+Expected: `Passed: 18  Failed: 0`. The `SKILL.md` text above measures 684 words; a word-count failure means the file differs from Step 5.
 
 - [ ] **Step 9: Run the manager scenarios (GREEN)**
 
 Run: `bash tests/managing-epic-delivery/test-manager.sh`
-Expected: `Failed: 0`. On a failure, follow "Read this first" on reading transcripts before changing anything. Any skill change must keep `SKILL.md` under 650 words, so re-run Step 8 after it.
+Expected: `Failed: 0`. On a failure, follow "Read this first" on reading transcripts before changing anything. Any skill change must keep `SKILL.md` under 700 words, so re-run Step 8 after it.
 
 - [ ] **Step 10: Commit (releasable checkpoint)**
 
@@ -1305,7 +1308,7 @@ if want accept; then
     check "acceptance recorded" grep -qE "^User acceptance: [0-9]{4}-[0-9]{2}-[0-9]{2}" "$repo/$report"
     check "every section filled" report_filled "$repo/$report"
     check "integration state names the kept branch" bash -c "grep -A3 '^## Integration state' '$repo/$report' | grep -q 'feature/add-tag-command'"
-    check "report not committed by the executor" bash -c "[ -n \"\$(git -C '$repo' status --porcelain -- '$report')\" ]"
+    check "report not committed by the executor" test -z "$(git -C "$repo" ls-files docs/handovers)"
     check "branch kept" git -C "$repo" rev-parse --verify --quiet feature/add-tag-command
 fi
 
@@ -1512,7 +1515,7 @@ Run this after Step 4.
    - "Integration state" to what Step 4 did: merged into <branch>, PR open: <link>, branch <name> kept unmerged, or branch discarded;
    - every other section from the spec, the plan and this session, writing "None" where nothing applies.
 2. Deliver it:
-   - File mode: save the file. Do not commit it; the Delivery Manager commits handover files on trunk.
+   - File mode: save the file. Do not commit it; handover files stay out of git while the epic runs.
    - Tracker mode: post it as a new comment on the PBI.
 3. If delivery failed: show the user the whole report, tell them how to deliver it by hand (save it as the report file, or paste it as a comment on the PBI), keep the task-list reminder open, and stop here.
 4. Mark the task-list reminder complete, if there is one.
@@ -1563,11 +1566,11 @@ For work larger than one feature, such as an epic of several PBIs in Asana or JI
 
 **The loop, once per PBI:**
 1. The manager writes a brief and prints a prompt for you to copy.
-2. Start a fresh session (`/clear`, or a second terminal) and paste the prompt. With a tracker it reads *"Work on PBI \<link\>…"*; without one, *"Read your instructions from @docs/handovers/\<epic\>/\<NN\>-brief-\<pbi\>.md"*.
+2. Start a fresh session (`/clear`, or a second terminal) and paste the prompt. With a tracker it reads *"Work on PBI \<link or ID\>…"*; without one, *"Read your instructions from @docs/handovers/\<epic\>/\<NN\>-brief-\<pbi\>.md"*.
 3. Work through brainstorming, plan and implementation as usual. When you finish the branch, the executor asks whether you accept the PBI as done and then writes its report.
 4. Go back to the manager (`/resume`, or a new session saying *"Act as Delivery Manager for epic \<link\>"*) and say *"completed"*. The executor prints this prompt for you too.
 
-**Where the plan and messages go:** with Asana or JIRA connected, PBIs are subtasks of the epic or a flat backlog linked to it by a tag or name prefix, whichever you prefer. The approved sequence is kept in a comment on the epic and applied to the tracker's own order; if you rearrange the PBIs, the manager notices and asks which order to follow. Briefs and reports are comments on the PBI. Without a tracker, they are files in `docs/handovers/<epic>/`, and at the end of the epic you can delete them.
+**Where the plan and messages go:** with Asana or JIRA connected, PBIs are subtasks of the epic or a flat backlog linked to it by a tag or name prefix, whichever you prefer. The approved sequence is kept in a comment on the epic and applied to the tracker's own order; if you rearrange the PBIs, the manager notices and asks which order to follow. Briefs and reports are comments on the PBI. Without a tracker, they are files in `docs/handovers/<epic>/`, kept out of git while the epic runs. At the end you can delete them or commit them.
 
 **Requirement:** in tracker mode, both the manager and the executor sessions need the tracker's MCP connector.
 
@@ -1665,7 +1668,7 @@ Read these files from <REPO>:
 
 Then walk through these roles against the toy repository <SANDBOX>, step by step. At each step state exactly what you would do: commands, files written with their full contents, messages to the user. Do not modify any file. Assume you have no task-list tool.
 
-1. Delivery Manager, file mode: setup, intake of docs/handovers/toy-epic/epic.md, the sequence proposal, and the first dispatch after the user approves the sequence with handover files committed and branch base trunk.
+1. Delivery Manager, file mode: setup, intake of docs/handovers/toy-epic/epic.md, the sequence proposal, and the first dispatch after the user approves the sequence with branch base trunk.
 2. Executor: a fresh session given the printed prompt. Name the header lines its spec and plan get, and how its feature branch is created, both from trunk and from an earlier PBI's unmerged branch. Then a session working on an ordinary Asana task with no brief: which header lines its spec gets.
 3. Executor at finishing time, five times: the user answers accept and then keeps the branch; the user answers not yet; the user answers abandon; the session was compacted and the plan path is unknown; the plan has a `Branch base:` line naming an earlier PBI's branch.
 4. Delivery Manager again, in a new session told "completed": verification and the next step. Then a new session that finds a complete report nobody has processed, whose "Discovered work" names a PBI that must come before the next one: what is proposed, applied and recorded.
@@ -1736,7 +1739,7 @@ Watch for these along the way:
 - [ ] The printed prompt starts an executor that finds the brief in the comments. Its spec and plan carry the `PBI:` and `Delivery brief:` lines.
 - [ ] At finishing, acceptance is asked **before** the merge/PR options, and a comment starting `# Executor report` appears, with every section filled.
 - [ ] Between PBIs, use a brand-new manager session instead of `/resume`. It picks up correctly, and issues no second brief for a PBI that is still in progress.
-- [ ] Close-out posts the summary you approve and closes the epic.
+- [ ] Close-out posts the summary you approve, closes the epic, and leaves all done or abandoned PBIs closed.
 - [ ] Ordinary work during the same period finishes with the usual four options and no acceptance question.
 
 ---
