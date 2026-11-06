@@ -15,7 +15,7 @@
 ## Read this first
 
 - **Never create or use a git worktree.** One ordinary feature branch.
-- **Only the controller commits**, using `superartes:commit-message`. Implementer subagents never commit.
+- **Only the controller commits**, using `superartes:commit-message`. Implementer subagents never commit. In the context of this plan remember to differentiate between implementer, controller and delivery manager. 
 - The session executing this plan runs on the **installed** Superartes 1.5.1 plugin, not on this working tree. Editing `finishing-a-development-branch` and `using-feature-branches` here does not change the skills that drive this execution.
 - Live tests run `claude -p` with `--plugin-dir <repository root>` and switch the installed copy off with `--settings '{"enabledPlugins":{"superartes@superartes":false}}'`, so only the working-tree skills load. Task 1 verifies that.
 - **Cost control.** Live tests take minutes each and cost tokens. Every live script accepts `ONLY=<scenario>` to run one scenario. RED steps run only the named scenario; GREEN steps run the whole script once. Live tests write only under `${TMPDIR:-/tmp}/superartes-tests/managing-epic-delivery/` and print their output directory.
@@ -893,47 +893,48 @@ description: Use when asked to act as Delivery Manager, or to orchestrate, seque
 
 # Managing Epic Delivery
 
-As **Delivery Manager** you sequence an epic's PBIs and brief a fresh executor session for each; the user relays messages.
+As **Delivery Manager** you sequence an epic's PBIs and brief a fresh executor session for each; the user relays messages. Sequencing an epic may include also refining the epic (making the epic itself more precise), decomposing the epic into PBIs as well as adding PBIs and decomposing existing PBIs if needed or if asked.
 
-**Never write or edit product code or do an executor's work;** you learn about the code only from reports.
+**Never write or edit product code or do an executor's work;** but you can **read** the code if needed.
 
 ## Where state lives
 
-- **Tracker mode** (epic in a connected tracker): status in the tracker; your plan in an epic comment headed `Delivery Manager plan` (latest wins); briefs as PBI comments headed `Delivery Manager brief NN`; reports as comments headed `Executor report`.
-- **File mode**: `docs/handovers/<epic-slug>/` holds `epic.md`, `NN-brief-<pbi-slug>.md` and `NN-report-<pbi-slug>.md`. If they are committed, only you commit them, on trunk.
+- **Tracker mode** (epic in a connected tracker eg. JIRA, Asana): status in the tracker; if tracker allows your plan is in subtasks for the epic task or as PBIs on the same level as the epic but linked to the epic by a tag or part of the name (eg. "E7"). Ask the user if they prefer subtasks or flat backlog. Briefs as PBI comments headed `Delivery Manager brief NN`; reports as comments headed `Executor report`.
+- **File mode** (if tracker is unavailable): `docs/handovers/<epic-slug>/` holds `epic.md`, `NN-brief-<pbi-slug>.md` and `NN-report-<pbi-slug>.md`. If they are committed, only you commit them, on trunk.
 
 `NN` is the dispatch number, never reused. Use headings and `Status:` values verbatim.
 
 ## Start
 
 1. Look for a `Delivery Manager plan` comment, or a `Mode:` line in `epic.md`. If found, resume: keep that mode, reconcile briefs, reports and statuses, and finish outstanding work first. Never brief a PBI whose last brief has no `complete` or `abandoned` report.
-2. Otherwise choose the mode. File mode: ask whether handover files are committed or git-ignored. Tracker mode: if unclear how the board shows status, ask once. Record them (`epic.md` starts with `Mode:`).
+2. Otherwise choose the mode. File mode: ask whether handover files are committed or git-ignored. Tracker mode: if unclear how the board shows status and what is the user's preference, ask once. 
 
 ## Intake and sequence
 
 3. Read the epic and its PBIs. Resolve missing goals, acceptance criteria or dependencies with the user.
-4. Propose an order, one reason per position, and wait for approval; backlog changes need approval too. Record the sequence; `epic.md` also keeps the PBIs and a dispatch log.
+4. Review if nothing is missing and if yes then propose additional PBI to the user, add them only if accepted. 
+5. Propose an order, one reason per position, and wait for approval; backlog changes need approval too. Record the sequence using tracker order (if tracker permits) or in the comment on epic task; in file mode `epic.md` also keeps the PBIs and a dispatch log.
 
 ## Dispatch, one PBI at a time
 
-5. If the PBI depends on unmerged work, propose a branch base (trunk, an earlier PBI's branch, or wait for its merge). The user decides.
-6. Write the brief from `brief-template.md` in this skill's directory; in file mode also create the report from `report-template.md`. Log the dispatch; set the PBI in progress.
-7. Print the executor prompt:
-   - Tracker: `Work on PBI <link>. Read the Delivery Manager brief in its comments through the tracker connector; if you cannot read it, stop and tell me.`
-   - File: `Read your instructions from @docs/handovers/<epic-slug>/NN-brief-<pbi-slug>.md`
+6. If the PBI depends on unmerged work, propose a branch base (trunk, an earlier PBI's branch, or wait for its merge). The user decides.
+7. Write the brief from `brief-template.md` in this skill's directory; in file mode also create the report from `report-template.md`. Log the dispatch; set the PBI in progress.
+8. Print the executor prompt:
+   - Tracker mode: `Work on PBI <link>. Read the Delivery Manager brief in its comments through the tracker connector; if you cannot read it, stop and tell me.`
+   - File mode: `Read your instructions from @docs/handovers/<epic-slug>/NN-brief-<pbi-slug>.md`
 
 Parallel executors: independent PBIs, separate clones sharing the handover folder.
 
 ## Receive
 
-8. Mark a PBI done only if its report names the active brief, says `complete`, records user acceptance and fills every section. Flag reports for abandoned or superseded briefs.
-9. Propose changes from its impacts and discovered work for approval.
-10. Abandoned PBI: settle its status with the user and record `abandoned` in its report or a comment.
-11. Repeat from step 5 until every PBI is done or dropped.
+9. Mark a PBI done only if its report names the active brief, says `complete`, records user acceptance and fills every section. Flag reports for abandoned or superseded briefs.
+10. Propose changes from its impacts and discovered work for approval.
+11. Abandoned PBI: settle its status with the user and record `abandoned` in its report or a comment.
+12. Repeat from step 5 until every PBI is done or dropped.
 
 ## Close-out
 
-12. Check results against the epic goal; draft a summary and post it to the epic if approved. File mode: offer to delete the handover folder (`git rm` if committed).
+12. Check results against the epic goal; draft a summary and post it to the epic if approved. Tracker mode: close the Epic. File mode: offer to delete the handover folder (`git rm` if committed).
 ````
 
 - [ ] **Step 6: Write `brief-template.md`**
