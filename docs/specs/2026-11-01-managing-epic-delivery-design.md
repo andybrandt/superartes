@@ -2,7 +2,7 @@
 
 ## Overview
 
-Add a skill, `managing-epic-delivery`, in which an agent acts as **Delivery Manager** for an epic. It does intake on the epic and its product backlog items (PBIs), proposes a sequence, and briefs one fresh **executor** session per PBI. Each executor is an ordinary main session that runs the full Superartes cycle with the user (brainstorming → spec → plan → execution → finishing) and reports back only after the user accepts the work.
+Add a skill, `managing-epic-delivery`, in which an agent acts as **Delivery Manager** for an epic. It does intake on the epic and its product backlog items (PBIs), helps the user refine the epic and complete the backlog (decomposing work and adding PBIs once the user accepts them), proposes a sequence, and briefs one fresh **executor** session per PBI. Each executor is an ordinary main session that runs the full Superartes cycle with the user (brainstorming → spec → plan → execution → finishing) and reports back only after the user accepts the work.
 
 The user carries the messages between sessions. Briefs and reports are comments on the PBI when a tracker such as Asana or JIRA is connected, and files in `docs/handovers/<epic-slug>/` otherwise. Two small additions to existing skills make the executor side semi-automatic. `brainstorming` picks up a brief at the start of the cycle, and `finishing-a-development-branch` produces the report at its end.
 
@@ -12,7 +12,7 @@ Superartes orchestrates work *within* one feature: `subagent-driven-development`
 
 ## Goals
 
-- One session sequences an epic's PBIs and keeps the backlog accurate.
+- One session helps complete an epic's backlog, sequences its PBIs and keeps the backlog accurate.
 - Each PBI is delivered by a session that can converse with the user and use the full subagent depth.
 - No PBI counts as done until the user has accepted it.
 - The manager's state can be recovered from the tracker or the handover files, so a new manager session can take over at any time.
@@ -21,7 +21,7 @@ Superartes orchestrates work *within* one feature: `subagent-driven-development`
 
 ## Non-goals
 
-- **Shaping an epic** (turning an idea into an epic with PBIs). This will be a separate skill, specified later. Until then, intake fills gaps with the user in conversation.
+- **Creating an epic from a bare idea.** The manager starts from an existing epic, however thin: at minimum a goal, which it can refine and decompose.
 - Automated transport between sessions. The user moves between sessions by hand.
 - Running several executors in parallel by default.
 
@@ -39,11 +39,12 @@ Recorded so that later work does not reopen them without new information. The pl
 | **Identifying the PBI at finishing from the branch name, or from any spec or plan in the repository** | Specs and plans are committed on trunk and accumulate, so a repository-wide match can tie ordinary work to an unrelated PBI. The branch may already be gone after a merge. Identity comes from the plan executed in this session, then the task-list reminder, then (file mode) a pending skeleton confirmed by the user. |
 | **Handover steps written inline in `finishing-a-development-branch/SKILL.md`** | That skill loads at the end of every cycle. Inline conditional detail costs tokens on every finish, and makes Claude likelier to ask about acceptance on ordinary work. Hence a one-line gate and a supporting file. |
 | **Treating every `PBI:` line as a handover** | Ordinary tracker-linked work also carries `PBI:` metadata. Only a `Delivery brief:` line is positive evidence of managed delivery. |
-| **Epic shaping inside this skill** | Shaping has a different trigger (it is useful without delivery) and a different output (backlog items, not a delivered PBI). It would also add tokens to a skill that is loaded every time the user returns to the manager. |
+| **A separate epic-shaping skill** | First planned, then dropped by the user on 2026-11-06. Refining and decomposing are part of sequencing an epic, and the manager needs the same abilities when reports reveal new work. The cost is a larger `SKILL.md` (see Testing, item 8). |
+| **The sequence always in a plan comment** | Most trackers show order natively, and a second copy would drift. The tracker's own order is the record; the plan comment holds the sequence only when the tracker has no order. |
 
 ## Roles
 
-**Delivery Manager**: a session running `managing-epic-delivery`. It owns the epic: intake, sequencing, briefs, re-planning and close-out. It never writes or edits product code and never does an executor's work, however small. It learns about the code only through reports.
+**Delivery Manager**: a session running `managing-epic-delivery`. It owns the epic: intake, completing the backlog, sequencing, briefs, re-planning and close-out. It never writes or edits product code and never does an executor's work, however small. It may read the code when that helps, for example to judge a decomposition; reports remain its main source of what changed.
 
 **Executor**: a fresh session per PBI, started by the user with the prompt the manager prints. It runs the standard cycle with the user. It becomes an executor only because a brief exists for the item it is working on. No special skill is involved.
 
@@ -52,7 +53,9 @@ Recorded so that later work does not reopen them without new information. The pl
 | | Tracker mode (connector available, epic in the tracker) | File mode (otherwise) |
 |---|---|---|
 | Epic and PBI status | The tracker's own status mechanism | `docs/handovers/<epic-slug>/epic.md` |
-| Approved sequence and conventions | A comment on the epic headed **"Delivery Manager plan"**; a new one is posted after each re-plan, and the latest wins | `epic.md` |
+| PBIs | Subtasks of the epic, or a flat backlog at the epic's level linked to it by a tag or name prefix (such as "E7"), as the user prefers | `epic.md` |
+| Approved sequence | The tracker's own order; the plan comment if the tracker has no order | `epic.md` |
+| Conventions | A comment on the epic headed **"Delivery Manager plan"**: subtasks or flat backlog, the tag or prefix, how status is shown. A new one is posted when they change; the latest wins. It also marks the epic as managed, so a fresh manager can resume | `epic.md`, starting with a `Mode:` line |
 | Brief | A comment on the PBI headed **"Delivery Manager brief"**, including the report template | `docs/handovers/<epic-slug>/NN-brief-<pbi-slug>.md` |
 | Report | A comment on the PBI headed **"Executor report"** | `docs/handovers/<epic-slug>/NN-report-<pbi-slug>.md`, pre-created by the manager as a skeleton with `Status: awaiting executor` |
 
@@ -73,7 +76,7 @@ In file mode the manager asks once per epic whether the handover files are commi
 ## Lifecycle
 
 ```
-Manager: setup → intake → propose sequence → user approves
+Manager: setup → intake → complete backlog with the user → propose sequence → user approves
   repeat while PBIs remain:
     Manager: pick next PBI; propose branch base; user decides;
              write brief (+ report template/skeleton); PBI → in progress;
@@ -89,14 +92,15 @@ One PBI is in flight at a time by default. If two PBIs are genuinely independent
 
 ## Delivery Manager workflow (the skill)
 
-**Entry rule (every time the skill starts).** First look for existing delivery state: a "Delivery Manager plan" comment on the epic, or `docs/handovers/<epic-slug>/epic.md`. If it exists, this is a **resume**: keep the recorded mode, reconcile briefs, reports and tracker status, and finish any outstanding action first, such as an unprocessed report or a pending brief, before proposing a new dispatch. Never issue a second brief for a PBI that already has a pending brief. Only when no state exists does the manager start at step 0.
+**Entry rule (every time the skill starts).** First look for existing delivery state: a "Delivery Manager plan" comment on the epic, or a `Mode:` line in `docs/handovers/<epic-slug>/epic.md`. An `epic.md` without that line is only a backlog the user wrote. If it exists, this is a **resume**: keep the recorded mode, reconcile briefs, reports and tracker status, and finish any outstanding action first, such as an unprocessed report or a pending brief, before proposing a new dispatch. Never issue a second brief for a PBI that already has a pending brief. Only when no state exists does the manager start at step 0.
 
-0. **Setup.** Detect the mode. In file mode, ask about committing the handover files. In tracker mode, if it is unclear how the board represents status, ask once and record the answer in the "Delivery Manager plan" comment.
-1. **Intake.** Read the epic and every PBI. For each PBI, check that it is ready to brief: a clear goal, acceptance criteria and known dependencies. Report gaps. If the epic is too thin, fill the gaps with the user in conversation.
-2. **Sequence.** Propose an order with a one-line reason per position (dependency, risk, value). Proposals to split, merge or add PBIs are suggestions only. Backlog *content* changes only after the user approves.
-3. **Dispatch** (per PBI). Check whether the PBI depends on unmerged earlier work, and propose a branch base: from trunk, from branch X, or wait for X to merge. The user decides. Write the brief and the report template or skeleton, record the dispatch (plan comment or `epic.md`), and move the PBI to "in progress". Print the exact prompt for the user to paste: the connector-precondition prompt above in tracker mode, or *"Read your instructions from @\<brief path\>"* in file mode.
-4. **Receive.** When the user says the PBI is completed, find the report and verify it: it exists, names the active brief, says complete, records the user's acceptance and has its sections filled. Only then mark the PBI done. A report that answers an abandoned or superseded brief is flagged to the user, not acted on. Read its impacts and discovered work, and propose changes to the remaining sequence or PBIs for approval. If the user abandons a PBI, mark the report `Status: abandoned` (file mode) or post a short comment saying so (tracker mode), and settle the PBI's status with the user.
-5. **Close-out.** Check the finished PBIs against the epic's goal. Draft an epic summary, and post it to the epic as a comment or status update if the user approves. In file mode, offer to delete the handover folder (`git rm` if committed, a plain delete if ignored).
+0. **Setup.** Detect the mode. In file mode, ask about committing the handover files. In tracker mode, if it is unclear how the board represents status or whether the user prefers subtasks or a flat backlog, ask once. Always record the conventions, even if no question was needed: the "Delivery Manager plan" comment or `epic.md` is what lets a fresh manager resume.
+1. **Intake.** Read the epic and every PBI. For each PBI, check that it is ready to brief: a clear goal, acceptance criteria and known dependencies. Report gaps. Resolve the gaps with the user.
+2. **Complete the backlog.** Check that nothing is missing, and propose what the backlog lacks: a more precise epic, PBIs for an epic not yet decomposed, missing PBIs, and splits of PBIs too large for one executor session. The user can also ask for any of these. Apply only what the user accepts, in the tracker or `epic.md`.
+3. **Sequence.** Propose an order with a one-line reason per position (dependency, risk, value), and wait for approval. Record it in the tracker's own order, or in the plan comment if the tracker has none.
+4. **Dispatch** (per PBI). Check whether the PBI depends on unmerged earlier work, and propose a branch base: from trunk, from branch X, or wait for X to merge. The user decides. Write the brief and the report template or skeleton, record the dispatch (plan comment or `epic.md`), and move the PBI to "in progress". Print the exact prompt for the user to paste: the connector-precondition prompt above in tracker mode, or *"Read your instructions from @\<brief path\>"* in file mode.
+5. **Receive.** When the user says the PBI is completed, find the report and verify it: it exists, names the active brief, says complete, records the user's acceptance and has its sections filled. Only then mark the PBI done. A report that answers an abandoned or superseded brief is flagged to the user, not acted on. Read its impacts and discovered work, and propose changes to the remaining sequence or PBIs. Treat them as in steps 1 to 3: apply what the user accepts and record the revised sequence before the next dispatch. If the user abandons a PBI, mark the report `Status: abandoned` (file mode) or post a short comment saying so (tracker mode), and settle the PBI's status with the user.
+6. **Close-out.** Check the finished PBIs against the epic's goal. Draft an epic summary, and post it to the epic as a comment or status update if the user approves. In tracker mode, close the epic. In file mode, offer to delete the handover folder (`git rm` if committed, a plain delete if ignored).
 
 Routine status moves that follow from the protocol (in progress, done) need no separate approval.
 
@@ -178,6 +182,8 @@ Following the repository's test-first approach to skills (`writing-skills`):
 1. **Baseline (RED).** In a scratch repository with a file-mode `epic.md` of three small PBIs, ask an agent without the skill to act as Delivery Manager. Record its failures. These become what the skill must close.
 2. **Manager scenario (GREEN).** Same setup, with the skill. Pass criteria:
    - an intake report listing the gaps;
+   - for an epic with no PBIs, proposed PBIs added only after acceptance;
+   - for work a report discovered, a new PBI added and sequenced only after acceptance;
    - a proposed sequence awaiting approval;
    - a brief and a report skeleton written;
    - the exact executor prompt printed;
@@ -205,16 +211,15 @@ Following the repository's test-first approach to skills (`writing-skills`):
      - the report comment is posted.
 
    Tracker mode has no automated coverage. It is a manual checkpoint.
-8. **Existing checks stay green.** Run `python3 tests/codex-plugin/validate-codex-plugin.py`. Measure the new `SKILL.md`'s word count when writing it (target under 500 words).
+8. **Existing checks stay green.** Run `python3 tests/codex-plugin/validate-codex-plugin.py`. Measure the new `SKILL.md`'s word count when writing it. The limit is 650 words, above the repository's 500-word target, because backlog completion moved into this skill. It loads only in manager sessions, and its steps are needed at every start, so a supporting file would save nothing.
 
 ## Risks
 
-- **Tracker variety.** Status models differ between Asana, JIRA and others. Mitigation: use the tracker's own mechanism and ask once.
-- **Agent ignores the conditional additions.** If an executor skips the `Delivery brief:` line, the report is not triggered. Mitigation: the brief asks for the line explicitly, and the manager's verification in step 4 notices a missing report.
+- **Tracker variety.** Status models, hierarchy and ordering differ between Asana, JIRA and others. Mitigation: use the tracker's own mechanism, ask once, and fall back to the plan comment for order.
+- **Agent ignores the conditional additions.** If an executor skips the `Delivery brief:` line, the report is not triggered. Mitigation: the brief asks for the line explicitly, and the manager's verification in step 5 notices a missing report.
 - **Comment noise.** Briefs and reports add comments to tickets that humans also use. Mitigation: fixed headings and concise templates.
 
 ## Future work
 
-- An epic-shaping skill; the intake step will then point to it.
 - Optional automatic notification from executor to manager on Claude Code through cross-session messaging, if the manual loop proves tedious.
 - Release: version bump across the six version files listed in `CLAUDE.md`, as its own step at the end.
