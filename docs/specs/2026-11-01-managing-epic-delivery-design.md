@@ -177,23 +177,18 @@ The skills are executed by Claude (Claude Code) and GPT models (Codex) alike, an
 
 ## Testing
 
-Prose behaves probabilistically, so a live test is a sample of behaviour, not a proof, and live runs are costly. Testing therefore follows risk: deterministic checks where the content really is an interface, live scenarios on the main paths with assertions on git and file outcomes where possible, review for the rarer paths, and a real pilot. Live tests are a development tool, run when the skill they cover changes, not a permanent suite. This keeps the test-first approach of `writing-skills` through the baseline.
+Prose behaves probabilistically, so a live test is a sample of behaviour, not a proof, and live runs are costly. Testing therefore follows risk: deterministic checks where the content really is an interface, cheap live tripwires for the worst offences, review for everything else, and a real pilot. Live tests always run on Sonnet to keep the cost down, assert on git and file outcomes, and look at wording only for literal skill text and the stray acceptance question. They are a development tool, run when the skill they cover changes, not a permanent suite. This keeps the test-first approach of `writing-skills` through the baseline.
 
 1. **Baseline (RED).** In a scratch repository with a file-mode `epic.md` of three small PBIs, ask an agent without the skill to act as Delivery Manager. Record its failures. These become what the skill must close.
-2. **Manager scenarios (GREEN).** Same setup, with the skill. Pass criteria:
-   - the agent asks about storage and reports the gaps;
-   - a proposed sequence awaits approval, and no brief is written before it;
-   - a brief and a report skeleton are written, and the exact executor prompt is printed;
-   - for an epic with no PBIs, proposed PBIs are added only after acceptance;
-   - no product code is touched.
+2. **Manager tripwires (GREEN).** Same setup, with the skill. They fail if the manager changes product code, writes a brief before approval, or adds a PBI to an epic before acceptance. After approval, a brief and a pending report skeleton must exist.
 3. **Triggering.** Add a prompt to `tests/skill-triggering/` that must load `managing-epic-delivery`, add the skill to `run-all.sh`, and make `run-all.sh` count piped failures.
 4. **Finishing handover.**
-   - With a `Delivery brief:` line pointing at a pending skeleton, the agent asks for acceptance before the options, then fills in the report, including the integration state, and prints the return instruction.
-   - No plan path given, but a pending skeleton exists under `docs/handovers/`: the agent asks the user to confirm it belongs to this work before using it.
-   - **Regressions**, sampled three times each because a stray question is a matter of how often: with no plan metadata, and with a `PBI:` line but no `Delivery brief:` line, finishing behaves as before and asks no extra question.
+   - With a `Delivery brief:` line pointing at a pending skeleton, nothing is integrated before acceptance. After acceptance the report is filled in, including the integration state, and left uncommitted.
+   - No plan path given, but a pending skeleton exists under `docs/handovers/`: the report stays pending and nothing is merged.
+   - **Regressions**, sampled three times each because a stray question is a matter of how often: with no plan metadata, and with a `PBI:` line but no `Delivery brief:` line, finishing reaches the usual options and asks no acceptance question.
    - `using-feature-branches` cuts the branch from a plan's `Branch base:` and carries the plan onto it.
-5. **Manager recovery.** A fresh manager given only persisted state, with a brief still pending, reports it as outstanding and issues no duplicate brief.
-6. **Execute-the-prose review, with both model families.** A Claude reviewer and a Codex reviewer each perform the manager and executor roles on the toy epic and report where the instructions stop making sense. This is the main coverage for the paths with no live test: not yet, abandon, retry, a late report, an unprocessed report, discovered work, a stacked branch base and the plan-header metadata. It also checks that a compacted executor without task tools still finds a file-mode handover through the `docs/handovers/` fallback.
+5. **Manager recovery.** A fresh manager given only persisted state, with a brief still pending, issues no duplicate brief.
+6. **Execute-the-prose review, with both model families.** A Claude reviewer and a Codex reviewer each perform the manager and executor roles on the toy epic and report where the instructions stop making sense. This is the main coverage of behaviour: the quality of intake and sequencing, the wording of questions, and the paths with no live test (not yet, abandon, retry, a late report, an unprocessed report, discovered work, a stacked branch base and the plan-header metadata). It also checks that a compacted executor without task tools still finds a file-mode handover through the `docs/handovers/` fallback.
 7. **Pilot, run by the user.** The first real Asana epic, delivered with the working-tree plugin on the unmerged feature branch, with a short list of behaviours to watch. It is the only test with an interactive session, a real tracker and real work. Tracker mode has no automated coverage.
 8. **Static checks.** Only the protocol strings that several files must agree on, and the word limit; not checks that merely confirm a sentence was pasted in. Run `python3 tests/codex-plugin/validate-codex-plugin.py`. The `SKILL.md` limit is 650 words, above the repository's 500-word target, because adjusting the epic and its backlog is part of this skill. It loads only in manager sessions, and its steps are needed at every start, so a supporting file would save nothing.
 

@@ -19,10 +19,16 @@
 - The session executing this plan runs on the **installed** Superartes 1.5.1 plugin, not on this working tree. Editing `finishing-a-development-branch` and `using-feature-branches` here does not change the skills that drive this execution.
 - Live tests run `claude -p` with `--plugin-dir <repository root>` and switch the installed copy off with `--settings '{"enabledPlugins":{"superartes@superartes":false}}'`, so only the working-tree skills load. Task 1 verifies that.
 - **Cost control.** Live tests take minutes each and cost tokens. Every live script accepts `ONLY=<scenario>` to run one scenario. RED steps run only the named scenario; GREEN steps run the whole script once. Live tests write only under `${TMPDIR:-/tmp}/superartes-tests/managing-epic-delivery/` and print their output directory.
-- **Testing approach.** Prose behaves probabilistically, so a live test is a sample of behaviour, not a proof. Tests follow risk: static checks cover only protocol strings shared across files and the word limit; live tests cover the main paths and assert on git and file outcomes wherever possible; the rarer paths are covered by the two-family prose review (Task 8) and the pilot (Task 9). Live tests are a development tool, run when the skill they cover changes, not a permanent suite. Do not add scenarios beyond those in this plan.
+- **Testing approach.** Prose behaves probabilistically, so a live test is a sample of behaviour, not a proof. Live tests are a cheap tripwire for the worst offences only, and they always run on Sonnet to keep the cost down:
+  - the manager changes product code, writes a brief before approval, adds a PBI before acceptance, or issues a second brief on resume;
+  - the executor integrates before acceptance, loses the report, or commits it;
+  - ordinary finishing asks the acceptance question;
+  - a branch is cut from the wrong base, or without its plan.
+
+  Live checks assert on git and files. The only wording they look at is literal skill text (`Merge back to`) and the stray acceptance question. Everything else is covered by the two-family prose review (Task 8) and the pilot (Task 9). A live test is a development tool, run when the skill it covers changes, not a permanent suite. Do not add scenarios or wording checks beyond those in this plan.
 - **Infrastructure failures are not results.** `run_turn` aborts the script with exit status 2 and the words `INFRASTRUCTURE FAILURE` when `claude` exits non-zero or produces no successful result event (timeout, CLI error, turn limit). Fix the environment and re-run; never read such a run as a pass or a fail of the skill.
 - Prose rules from the spec ("Writing the prose for both model families"): imperative numbered steps, conditional detail out of frequently loaded skills, no bold or capitals on conditional rules, never forbid a recovery move without a safe alternative. Copy the skill texts below exactly; they were written to these rules and to the word budget.
-- A live check can fail because the model phrased something unexpectedly rather than because the skill is wrong. Before changing a skill to satisfy a failing live check, read the transcript: `jq -r 'select(.type=="assistant") | .message.content[]? | select(.type=="text") | .text' <file>.jsonl`. Fix the skill when the behaviour is wrong; widen the check's pattern only when the behaviour is right and the pattern too narrow, and report every such pattern change to the controller.
+- A live check can fail because the model phrased something unexpectedly rather than because the skill is wrong. Before changing a skill to satisfy a failing live check, read the transcript: `jq -r 'select(.type=="assistant") | .message.content[]? | select(.type=="text") | .text' <file>.jsonl`. Fix the skill when the behaviour is wrong. If Sonnet fails where the behaviour is merely clumsy rather than one of the worst offences, report it to the controller instead of tuning the skill to that run.
 
 ## File map
 
@@ -198,7 +204,7 @@ scratch_dir() {
 }
 
 # run_turn <repo> <session-id> <first|resume> <transcript> <prompt>
-# Runs one headless Claude turn in <repo> with only the working-tree plugin enabled.
+# Runs one headless Claude turn in <repo> on Sonnet, with only the working-tree plugin enabled.
 # stdout (stream-json) goes to <transcript>, stderr to <transcript>.err.
 # Aborts the whole script with exit 2 unless claude exits 0 with a successful result.
 run_turn() {
@@ -209,6 +215,7 @@ run_turn() {
         session_args=(--resume "$session")
     fi
     ( cd "$repo" && timeout 900 claude -p "$prompt" "${session_args[@]}" \
+        --model sonnet \
         --plugin-dir "$PLUGIN_DIR" \
         --settings '{"enabledPlugins":{"superartes@superartes":false}}' \
         --dangerously-skip-permissions \
@@ -238,6 +245,14 @@ text_matches() {
     local text
     text="$(assistant_text "$@")"
     grep -qiE -- "$pattern" <<< "$text"
+}
+
+# epic_gained_subject_lines <repo> <fixture-sha>: true if epic.md gained a line about tags or
+# notes, in any format. Setup lines such as "Mode: file" do not mention them.
+epic_gained_subject_lines() {
+    local added
+    added="$(git -C "$1" diff "$2" -- docs/handovers/toy-epic/epic.md | grep '^+' | grep -v '^+++')"
+    grep -qiE 'tag|note' <<< "$added"
 }
 
 # product_code_untouched <repo> <fixture-sha>: no committed, staged, unstaged or new-file
@@ -528,7 +543,7 @@ Create `tests/managing-epic-delivery/test-plugin-isolation.sh`:
 
 ```bash
 #!/usr/bin/env bash
-# Live: proves run_turn loads this working tree's skills, not the installed plugin's copy.
+# Live: proves run_turn uses Sonnet and this working tree's skills, not the installed copy.
 set -uo pipefail
 source "$(dirname "$0")/lib.sh"
 source "$(dirname "$0")/fixtures.sh"
@@ -542,13 +557,14 @@ run_turn "$dir/repo" "$(new_session_id)" first "$dir/turn.jsonl" \
     "Use the Skill tool to load superartes:writing-skills. Then reply with only the word DONE."
 check "skill loaded from the working tree" grep -qF "$PLUGIN_DIR/skills/writing-skills" "$dir/turn.jsonl"
 check_not "installed copy not loaded" grep -qF "plugins/cache/superartes" "$dir/turn.jsonl"
+check "runs on Sonnet" bash -c "jq -r 'select(.type==\"system\" and .subtype==\"init\") | .model' '$dir/turn.jsonl' | grep -qi sonnet"
 finish_suite
 ```
 
 - [ ] **Step 8: Run it**
 
 Run: `chmod +x tests/managing-epic-delivery/*.sh && bash tests/managing-epic-delivery/test-plugin-isolation.sh`
-Expected: `Passed: 2  Failed: 0`. If "installed copy not loaded" fails, stop and report to the controller. Every later live result would be meaningless, so do not work around it.
+Expected: `Passed: 3  Failed: 0`. If "installed copy not loaded" fails, stop and report to the controller. Every later live result would be meaningless, so do not work around it.
 
 - [ ] **Step 9: Commit (releasable checkpoint)**
 
@@ -613,9 +629,9 @@ Create `tests/managing-epic-delivery/test-manager.sh`:
 
 ```bash
 #!/usr/bin/env bash
-# Live scenarios for managing-epic-delivery in file mode.
-#   intake:            setup, intake, approval, first dispatch (three turns)
-#   decompose:         an epic with no PBIs: proposes them, adds them only once accepted
+# Live tripwires for managing-epic-delivery in file mode: worst offences only.
+#   intake:            nothing dispatched before approval, then a first dispatch (two turns)
+#   decompose:         an epic with no PBIs: nothing added before acceptance
 #   resume-pending:    a fresh manager finds brief 01 still awaiting its report
 set -uo pipefail
 source "$(dirname "$0")/lib.sh"
@@ -628,40 +644,28 @@ echo "Output: $dir"
 
 if want intake; then
     repo="$dir/intake"
+    epic_dir="$repo/docs/handovers/toy-epic"
     make_toy_repo "$repo"
     add_epic "$repo" fresh
     fixture_sha="$(git -C "$repo" rev-parse HEAD)"
     session="$(new_session_id)"
 
     run_turn "$repo" "$session" first "$dir/intake-1.jsonl" \
-        "Act as Delivery Manager for the epic in docs/handovers/toy-epic/epic.md."
-    echo "Intake, turn 1 (setup):"
-    check "asks whether handover files are committed" text_matches "commit|git-?ignor" "$dir/intake-1.jsonl"
-    check_not "writes no brief yet" compgen -G "$repo/docs/handovers/toy-epic/[0-9][0-9]-brief-*.md"
+        "Act as Delivery Manager for the epic in docs/handovers/toy-epic/epic.md. Commit the handover files."
+    echo "Intake, turn 1 (before approval):"
+    check_not "writes no brief before approval" compgen -G "$epic_dir/[0-9][0-9]-brief-*.md"
     check "leaves product code alone" product_code_untouched "$repo" "$fixture_sha"
 
     run_turn "$repo" "$session" resume "$dir/intake-2.jsonl" \
-        "Commit the handover files."
-    echo "Intake, turn 2 (intake and sequence):"
-    check "flags the PBI without acceptance criteria" text_matches "tag-colours" "$dir/intake-1.jsonl" "$dir/intake-2.jsonl"
-    check "proposes an order" text_matches "sequence|order" "$dir/intake-1.jsonl" "$dir/intake-2.jsonl"
-    check "records the mode" grep -q "^Mode:" "$repo/docs/handovers/toy-epic/epic.md"
-    check_not "writes no brief before approval" compgen -G "$repo/docs/handovers/toy-epic/[0-9][0-9]-brief-*.md"
-    check "leaves product code alone" product_code_untouched "$repo" "$fixture_sha"
-
-    run_turn "$repo" "$session" resume "$dir/intake-3.jsonl" \
         "Acceptance criteria for tag-colours: 'notes.sh list --colour' prints each tag in a fixed colour. The order add-tag-command, list-by-tag, tag-colours is approved. Dispatch the first PBI; its branch base is trunk."
-    echo "Intake, turn 3 (dispatch):"
-    brief="$(compgen -G "$repo/docs/handovers/toy-epic/01-brief-*.md" | head -1)"
-    report="$(compgen -G "$repo/docs/handovers/toy-epic/01-report-*.md" | head -1)"
+    echo "Intake, turn 2 (dispatch):"
+    brief="$(compgen -G "$epic_dir/01-brief-*.md" | head -1)"
+    report="$(compgen -G "$epic_dir/01-report-*.md" | head -1)"
     check "brief 01 written" test -n "$brief"
     check "brief has the protocol heading" grep -q "^# Delivery Manager brief" "$brief"
     check "brief asks for the Delivery brief line" grep -q "Delivery brief:" "$brief"
     check "report skeleton is pending" grep -qx "Status: awaiting executor" "$report"
-    check "report names its brief" grep -q "^Answers brief:" "$report"
-    check "dispatch logged in epic.md" grep -q "01-brief-" "$repo/docs/handovers/toy-epic/epic.md"
-    check "handover files committed on master" bash -c "[ \"\$(git -C '$repo' branch --show-current)\" = master ] && [ -z \"\$(git -C '$repo' status --porcelain -- docs/handovers)\" ]"
-    check "prints the executor prompt" text_matches "Read your instructions from @docs/handovers/toy-epic/01-brief-" "$dir/intake-3.jsonl"
+    check "mode recorded for resume" grep -q "^Mode:" "$epic_dir/epic.md"
     check "leaves product code alone" product_code_untouched "$repo" "$fixture_sha"
 fi
 
@@ -671,26 +675,11 @@ if want decompose; then
     make_toy_repo "$repo"
     add_epic "$repo" thin
     fixture_sha="$(git -C "$repo" rev-parse HEAD)"
-    session="$(new_session_id)"
-
-    # The slug format only makes the proposal machine-readable; it does not hint at the workflow
-    run_turn "$repo" "$session" first "$dir/decompose-1.jsonl" \
-        "Act as Delivery Manager for the epic in docs/handovers/toy-epic/epic.md. Commit the handover files. The goal is clear, so do not ask about it. Name each PBI you propose with a slug of the form pbi-<word>."
-    proposed="$(assistant_text "$dir/decompose-1.jsonl" | grep -oE 'pbi-[a-z0-9-]+' | sort -u)"
-    echo "Decompose, turn 1 (proposal):"
-    check "proposes at least two PBIs" test "$(grep -c . <<< "$proposed")" -ge 2
-    check_not "adds no named PBI before acceptance" grep -q "pbi-" "$epic"
-    check_not "adds no PBI heading before acceptance" grep -q "^###" "$epic"
-    check_not "adds no criteria before acceptance" grep -qi "acceptance criteria" "$epic"
+    run_turn "$repo" "$(new_session_id)" first "$dir/decompose.jsonl" \
+        "Act as Delivery Manager for the epic in docs/handovers/toy-epic/epic.md. Commit the handover files. The goal is clear, so do not ask about it."
+    echo "Decompose (before acceptance):"
+    check_not "adds nothing about the epic's subject" epic_gained_subject_lines "$repo" "$fixture_sha"
     check_not "writes no brief" compgen -G "$repo/docs/handovers/toy-epic/[0-9][0-9]-brief-*.md"
-    check "leaves product code alone" product_code_untouched "$repo" "$fixture_sha"
-
-    run_turn "$repo" "$session" resume "$dir/decompose-2.jsonl" \
-        "Your proposed PBIs are accepted: add them to the epic, each with its acceptance criteria. Do not dispatch anything yet."
-    echo "Decompose, turn 2 (accepted):"
-    check "every proposed PBI is in the epic" bash -c 'while read -r slug; do grep -q "$slug" "$1" || exit 1; done <<< "$2"' _ "$epic" "$proposed"
-    check "criteria for every PBI" test "$(grep -ci "acceptance criteria" "$epic")" -ge "$(grep -c . <<< "$proposed")"
-    check_not "dispatches nothing" compgen -G "$repo/docs/handovers/toy-epic/[0-9][0-9]-brief-*.md"
     check "leaves product code alone" product_code_untouched "$repo" "$fixture_sha"
 fi
 
@@ -704,7 +693,6 @@ if want resume-pending; then
         "Act as Delivery Manager for the epic in docs/handovers/toy-epic/."
     echo "Resume with a pending brief:"
     check "briefs unchanged (none added, none rewritten)" test "$(brief_snapshot "$repo/docs/handovers/toy-epic")" = "$before"
-    check "names PBI 01 as outstanding" text_matches "add-tag-command" "$dir/resume-pending.jsonl"
     check "report still pending" grep -qx "Status: awaiting executor" "$repo/docs/handovers/toy-epic/01-report-add-tag-command.md"
     check "leaves product code alone" product_code_untouched "$repo" "$fixture_sha"
 fi
@@ -715,7 +703,7 @@ finish_suite
 - [ ] **Step 3: Record the baseline (RED), cheaply**
 
 Run: `chmod +x tests/managing-epic-delivery/*.sh && bash tests/managing-epic-delivery/static-checks.sh; ONLY=intake bash tests/managing-epic-delivery/test-manager.sh`
-Expected: the static checks fail (no skill yet), and the intake scenario fails at least one check. Read the three intake transcripts and write down what the agent did without the skill. Did it write code, invent a handover format, dispatch without approval, skip asking about storage? These observations go into the README in Step 4.
+Expected: the static checks fail (no skill yet), and the intake scenario fails at least one check. Read the two intake transcripts and write down what the agent did without the skill. Did it write code, invent a handover format, dispatch without approval, skip asking about storage? These observations go into the README in Step 4.
 
 - [ ] **Step 4: Write the tests README with the baseline**
 
@@ -724,7 +712,7 @@ Create `tests/managing-epic-delivery/README.md`, replacing the three bracketed b
 ````markdown
 # managing-epic-delivery tests
 
-Tests for the Delivery Manager skill and the handover hooks in `brainstorming`,
+Checks for the Delivery Manager skill and the handover hooks in `brainstorming`,
 `writing-plans`, `using-feature-branches` and `finishing-a-development-branch`.
 
 ## Deterministic (seconds, no model)
@@ -744,8 +732,9 @@ for t in plugin-isolation manager branch-base finishing-handover finishing-optio
 done
 ```
 
-These are a development tool: a live test is one sample of how a model behaved, not a proof.
-Run a script when the skill it covers changes, using the table below.
+These are a cheap tripwire for the worst offences, always on Sonnet: a live test is one sample
+of how a model behaved, not a proof. Run a script when the skill it covers changes, using the
+table below.
 
 `ONLY=<scenario>` runs one scenario of a script, for example
 `ONLY=accept bash tests/managing-epic-delivery/test-finishing-handover.sh`.
@@ -945,6 +934,7 @@ git commit   # message via superartes:commit-message
 **Files:**
 - Create: `tests/skill-triggering/prompts/managing-epic-delivery.txt`
 - Modify: `tests/skill-triggering/run-all.sh` (`set -e` line; the `SKILLS=(` array)
+- Modify: `tests/skill-triggering/run-test.sh` (run on Sonnet)
 - Possibly modify: `skills/managing-epic-delivery/SKILL.md` (frontmatter `description` only)
 
 - [ ] **Step 1: Write the prompt**
@@ -986,16 +976,31 @@ with:
 )
 ```
 
-- [ ] **Step 3: Run the triggering test**
+- [ ] **Step 3: Run triggering tests on Sonnet**
+
+In `tests/skill-triggering/run-test.sh`, replace:
+
+```bash
+    --plugin-dir "$PLUGIN_DIR" \
+```
+
+with:
+
+```bash
+    --model sonnet \
+    --plugin-dir "$PLUGIN_DIR" \
+```
+
+- [ ] **Step 4: Run the triggering test**
 
 Run: `cd tests/skill-triggering && ./run-test.sh managing-epic-delivery prompts/managing-epic-delivery.txt`
 Expected: it prints `✅ PASS: Skill 'managing-epic-delivery' was triggered`. The installed 1.5.1 plugin has no skill of this name, so `run-test.sh` needs no isolation here. If the skill does not trigger, read the logged first response, then adjust only the frontmatter `description` in `SKILL.md` (it must still start with "Use when" and describe only triggering conditions), re-run the static checks for the word budget, and re-run the trigger test.
 
-- [ ] **Step 4: Commit (releasable checkpoint)**
+- [ ] **Step 5: Commit (releasable checkpoint)**
 
 ```bash
 git add tests/skill-triggering/prompts/managing-epic-delivery.txt tests/skill-triggering/run-all.sh \
-        skills/managing-epic-delivery/SKILL.md
+        tests/skill-triggering/run-test.sh skills/managing-epic-delivery/SKILL.md
 git commit   # message via superartes:commit-message
 ```
 
@@ -1137,10 +1142,10 @@ check "base branch still unmerged into master" bash -c "! git -C '$repo' merge-b
 finish_suite
 ```
 
-- [ ] **Step 3: Run both and watch them fail**
+- [ ] **Step 3: Run the static check and watch it fail**
 
-Run: `chmod +x tests/managing-epic-delivery/test-branch-base.sh && bash tests/managing-epic-delivery/static-checks.sh; bash tests/managing-epic-delivery/test-branch-base.sh`
-Expected: the new static check fails; the live test fails "new branch contains the base branch" or "plan committed on the new branch". If it passes anyway, the agent improvised; note that in the report and continue, since the edit makes the behaviour explicit.
+Run: `chmod +x tests/managing-epic-delivery/test-branch-base.sh && bash tests/managing-epic-delivery/static-checks.sh`
+Expected: the new static check fails. The live test runs once, at GREEN.
 
 - [ ] **Step 4: Edit Step 2**
 
@@ -1254,9 +1259,9 @@ Create `tests/managing-epic-delivery/test-finishing-handover.sh`:
 
 ```bash
 #!/usr/bin/env bash
-# Live: finishing with a pending Delivery Manager handover (file mode).
-#   accept:   two turns: acceptance asked first, then the report is written
-#   fallback: fresh session, no plan named, no task-list reminder -> confirms ownership first
+# Live tripwires: finishing with a pending Delivery Manager handover (file mode).
+#   accept:   two turns: nothing integrated first, then the report is written
+#   fallback: fresh session, no plan named, no task-list reminder -> a pending report is left alone
 set -uo pipefail
 source "$(dirname "$0")/lib.sh"
 source "$(dirname "$0")/fixtures.sh"
@@ -1281,7 +1286,6 @@ new_repo() {
 # first_turn_checks <repo> <transcript> <report>: acceptance asked before any integration
 first_turn_checks() {
     local repo="$1" transcript="$2" report="$3"
-    check "asks for acceptance" text_matches "accept" "$transcript"
     check_not "options not offered before acceptance" text_matches "Merge back to" "$transcript"
     check_not "nothing merged" git -C "$repo" merge-base --is-ancestor feature/add-tag-command master
     check "report still pending" grep -qx "Status: awaiting executor" "$repo/$report"
@@ -1303,7 +1307,6 @@ if want accept; then
     check "integration state names the kept branch" bash -c "grep -A3 '^## Integration state' '$repo/$report' | grep -q 'feature/add-tag-command'"
     check "report not committed by the executor" bash -c "[ -n \"\$(git -C '$repo' status --porcelain -- '$report')\" ]"
     check "branch kept" git -C "$repo" rev-parse --verify --quiet feature/add-tag-command
-    check "prints the return instruction" text_matches "Delivery Manager" "$dir/accept-2.jsonl"
 fi
 
 if want fallback; then
@@ -1311,8 +1314,6 @@ if want fallback; then
     run_turn "$repo" "$(new_session_id)" first "$dir/fallback-1.jsonl" \
         "All work on this branch is done and committed. Finish the development branch. Skip the external code review."
     echo "Fallback:"
-    check "names the pending PBI" text_matches "add-tag-command|Add a tag to a note" "$dir/fallback-1.jsonl"
-    check "asks the user to confirm before using it" text_matches "belong|confirm|is this (work )?(for|part of)|does this (work|branch)" "$dir/fallback-1.jsonl"
     check "report still pending" grep -qx "Status: awaiting executor" "$repo/$EPIC/01-report-add-tag-command.md"
     check_not "nothing merged" git -C "$repo" merge-base --is-ancestor feature/add-tag-command master
 fi
@@ -1326,7 +1327,7 @@ Create `tests/managing-epic-delivery/test-finishing-options.sh`:
 
 ```bash
 #!/usr/bin/env bash
-# Live: finishing without a handover behaves as before: all four options, no acceptance
+# Live tripwire: finishing without a handover reaches the usual options with no acceptance
 # question. A stray question is a matter of how often, so each case is sampled RUNS times.
 set -uo pipefail
 source "$(dirname "$0")/lib.sh"
@@ -1338,12 +1339,6 @@ dir="$(scratch_dir)"
 echo "Output: $dir"
 FINISH_PROMPT="I executed the plan docs/plans/2026-11-01-add-tag-command.md in this session; all its tasks are done and committed on this branch. Finish the development branch. Skip the external code review."
 
-# four_options <transcript>: all four standard options appear
-four_options() {
-    text_matches "Merge back to" "$1" && text_matches "Pull Request" "$1" \
-        && text_matches "Keep the branch" "$1" && text_matches "Discard" "$1"
-}
-
 for variant in plain pbi-only; do
     if want "$variant"; then
         for run in $(seq 1 "${RUNS:-3}"); do
@@ -1353,7 +1348,7 @@ for variant in plain pbi-only; do
             make_feature_branch "$repo"
             run_turn "$repo" "$(new_session_id)" first "$dir/$variant-$run.jsonl" "$FINISH_PROMPT"
             echo "$variant, run $run:"
-            check "offers all four options" four_options "$dir/$variant-$run.jsonl"
+            check "reaches the options" text_matches "Merge back to" "$dir/$variant-$run.jsonl"
             check_not "no acceptance question" text_matches "accept .*as done|accept (the|this) PBI|not yet / abandon" "$dir/$variant-$run.jsonl"
             check_not "nothing merged yet" git -C "$repo" merge-base --is-ancestor feature/add-tag-command master
         done
@@ -1365,11 +1360,11 @@ finish_suite
 
 - [ ] **Step 4: Record RED, cheaply**
 
-Run: `chmod +x tests/managing-epic-delivery/test-finishing-*.sh && bash tests/managing-epic-delivery/static-checks.sh; ONLY=accept bash tests/managing-epic-delivery/test-finishing-handover.sh; RUNS=1 bash tests/managing-epic-delivery/test-finishing-options.sh`
+Run: `chmod +x tests/managing-epic-delivery/test-finishing-*.sh && bash tests/managing-epic-delivery/static-checks.sh; ONLY=accept bash tests/managing-epic-delivery/test-finishing-handover.sh; ONLY=plain RUNS=1 bash tests/managing-epic-delivery/test-finishing-options.sh`
 Expected:
 - six of the seven new static checks fail (the `check_not` one already passes);
 - the accept scenario fails at least "options not offered before acceptance" and the turn-2 report checks;
-- `plain` and `pbi-only` **pass**. They run against the unchanged skill, which shows the regression checks are sound. If they fail now, fix the test, not the skill.
+- `plain` **passes**. It runs against the unchanged skill, which shows the regression check is sound. If they fail now, fix the test, not the skill.
 
 - [ ] **Step 5: Edit Step 2 of `finishing-a-development-branch`**
 
