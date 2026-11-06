@@ -786,14 +786,14 @@ description: Use when asked to act as Delivery Manager, to orchestrate, sequence
 
 # Managing Epic Delivery
 
-As **Delivery Manager** you sequence an epic's PBIs and brief a fresh executor session for each; the user relays messages. This may include refining the epic, decomposing it into PBIs, adding PBIs or splitting existing ones, when needed or asked.
+As **Delivery Manager** you sequence an epic's PBIs and brief a fresh executor session for each. This may include refining the epic, decomposing it into PBIs, adding PBIs or splitting existing ones, when needed or asked.
 
 **Never write or edit product code or do an executor's work;** you may **read** the code when needed.
 
 ## Where state lives
 
-- **Tracker mode** (epic in a connected tracker): status in the tracker. PBIs are subtasks of the epic, or a flat backlog linked to it by a tag or name prefix (such as "E7"). An epic comment headed `Delivery Manager plan` records these conventions and the approved sequence (latest wins). Briefs and reports are PBI comments headed `Delivery Manager brief NN` and `Executor report`.
-- **File mode** (no connected tracker): `docs/handovers/<epic-slug>/` holds `epic.md`, `NN-brief-<pbi-slug>.md` and `NN-report-<pbi-slug>.md`. If they are committed, only you commit them, on trunk.
+- **Tracker mode** (epic in a connected tracker): status in the tracker. PBIs are subtasks of the epic, or a flat backlog linked to it by a tag or name prefix (such as "E7"). An epic comment headed `Delivery Manager plan` records these conventions and the approved sequence (latest wins). Briefs and reports are comments on appropriate PBI headed `Delivery Manager brief NN` and `Executor report`.
+- **File mode** (no connected tracker): `docs/handovers/<epic-slug>/` holds `epic.md`, `NN-brief-<pbi-slug>.md` and `NN-report-<pbi-slug>.md`. If they are committed, only you commit them, on trunk or branch depending on user preference.
 
 `NN` is the dispatch number, never reused. Use headings and `Status:` values verbatim.
 
@@ -805,16 +805,16 @@ As **Delivery Manager** you sequence an epic's PBIs and brief a fresh executor s
 ## Intake and sequence
 
 3. Read the epic and its PBIs. Resolve missing goals, acceptance criteria or dependencies with the user.
-4. Check that the backlog is complete. Propose what it lacks: a more precise epic, PBIs for an undecomposed epic, missing PBIs, splits of PBIs too large for one executor. Apply only what the user accepts.
+4. Check that the backlog is complete. Propose what it lacks: a more precise epic, PBIs for an undecomposed epic, missing PBIs, splits of PBIs too large for one executor. Each PBI when completed must leave the overall project in a "done" state. Apply only what the user accepts.
 5. Propose an order, one reason per position, and wait for approval. Record it in the plan comment and, if the tracker has an order, there too. `epic.md` keeps the PBIs, sequence and a dispatch log.
 
 ## Dispatch, one PBI at a time
 
 6. If the tracker has an order, compare it with the recorded sequence. If they differ, ask which to follow and record the answer.
-7. If the PBI depends on unmerged work, propose a branch base (trunk, an earlier PBI's branch, or wait for its merge). The user decides.
+7. If the PBI depends on existing unmerged work, propose a branch base. The user decides.
 8. Write the brief from `brief-template.md` in this skill's directory; in file mode also create the report from `report-template.md`. Log the dispatch; set the PBI in progress.
 9. Print the executor prompt:
-   - Tracker mode: `Work on PBI <link>. Read the Delivery Manager brief in its comments through the tracker connector; if you cannot read it, stop and tell me.`
+   - Tracker mode: `Work on PBI <link or ID>. Read the Delivery Manager brief in its comments through the tracker connector; if you cannot read it, stop and tell me.`
    - File mode: `Read your instructions from @docs/handovers/<epic-slug>/NN-brief-<pbi-slug>.md`
 
 Parallel executors: independent PBIs, separate clones sharing the handover folder.
@@ -828,7 +828,7 @@ Parallel executors: independent PBIs, separate clones sharing the handover folde
 
 ## Close-out
 
-14. Check results against the epic goal; draft a summary; post it to the epic if approved. Tracker mode: close the epic. File mode: offer to delete the handover folder (`git rm` if committed).
+14. Check results against the epic goal; draft a summary; post it to the epic if approved. Tracker mode: close the epic and ensure all PBIs done or abandoned are marked as closed. File mode: offer to delete the handover folder (`git rm` if committed).
 ````
 
 - [ ] **Step 6: Write `brief-template.md`**
@@ -845,7 +845,7 @@ Create `skills/managing-epic-delivery/brief-template.md`:
      File mode: save as docs/handovers/<epic-slug>/NN-brief-<pbi-slug>.md, and create
      NN-report-<pbi-slug>.md from report-template.md. -->
 
-Epic: <name> (<link, or epic.md path>)
+Epic: <name> (<tracker link or ID, or epic.md path>)
 PBI: <tracker> <ID> — "<title>" (<link>)
 <!-- File mode instead: PBI: <pbi-slug> — "<title>" -->
 Position: <n> of <total>
