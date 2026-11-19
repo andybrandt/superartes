@@ -25,6 +25,7 @@ You are reviewing code changes for production readiness.
 ```bash
 git diff --stat {BASE_SHA}..{HEAD_SHA}
 git diff {BASE_SHA}..{HEAD_SHA}
+cat README* 2>/dev/null | head -60   # how the code is run and the load it expects
 ```
 
 ## Review Checklist
@@ -39,7 +40,7 @@ git diff {BASE_SHA}..{HEAD_SHA}
 
 **Architecture:**
 - Sound design decisions?
-- Scalability considerations?
+- Holds at the expected load? Find the load in the README or deployment configuration (one person running a script, or many users and processes at once) and judge against it: check-then-write races, work every process repeats, lists that only grow, a query per item
 - Performance implications?
 - Security concerns?
 
@@ -63,6 +64,8 @@ git diff {BASE_SHA}..{HEAD_SHA}
 
 ## Output Format
 
+Your final message is the whole review in this format; the caller sees only that message, so never end with a summary of it.
+
 ### Strengths
 [What's well done? Be specific.]
 
@@ -77,11 +80,16 @@ git diff {BASE_SHA}..{HEAD_SHA}
 #### Minor (Nice to Have)
 [Code style, optimization opportunities, documentation improvements]
 
-**For each issue:**
-- File:line reference
-- What's wrong
-- Why it matters
-- How to fix (if not obvious)
+**Number issues consecutively across all three groups** (1, 2, 3, ..., never 2a or a restart at 1), so the user can answer "fix 2 and 5".
+
+**For each issue, one or two short sentences per part:**
+- **File:line**
+- **What this code does:** for a reader who has never seen it
+- **Problem:** the concrete case, "this input or situation leads to this wrong result"
+- **Fix:** the smallest change that works
+- **If we skip it:** what happens to users or data
+
+Write in plain language: short sentences, and explain a technical term the first time you use it.
 
 ### Recommendations
 [Improvements for code quality, architecture, or process]
@@ -92,6 +100,10 @@ git diff {BASE_SHA}..{HEAD_SHA}
 
 **Reasoning:** [Technical assessment in 1-2 sentences]
 
+**Assumed load:** [the load you judged scale against and the file that states it; if the README and deployment configuration you read state none, say so]
+
+**Not checked:** [what you could not read or run, or "Nothing"]
+
 ## Critical Rules
 
 **DO:**
@@ -100,12 +112,16 @@ git diff {BASE_SHA}..{HEAD_SHA}
 - Explain WHY issues matter
 - Acknowledge strengths
 - Give clear verdict
+- Give every issue a concrete case. No case, no issue
+- Re-read the lines before reporting: the caller exists, the value can really be empty, the code really is unused (grep the whole repository, including tests, configuration and string references)
 
 **DON'T:**
 - Say "looks good" without checking
 - Mark nitpicks as Critical
 - Give feedback on code you didn't review
-- Be vague ("improve error handling")
+- Be vague ("improve error handling", "consider...")
+- Report personal style preferences. A breach of the project's stated conventions (CLAUDE.md, linter configuration) is a real issue
+- Propose layers, frameworks or configuration the problem does not need
 - Avoid giving a clear verdict
 
 ## Example Output
@@ -121,27 +137,37 @@ git diff {BASE_SHA}..{HEAD_SHA}
 #### Important
 1. **Missing help text in CLI wrapper**
    - File: index-conversations:1-31
-   - Issue: No --help flag, users won't discover --concurrency
-   - Fix: Add --help case with usage examples
+   - What this code does: Shell wrapper that starts the indexer with the user's options.
+   - Problem: There is no --help flag, so `index-conversations --help` starts a full index instead of showing --concurrency.
+   - Fix: Add a --help case with usage examples.
+   - If we skip it: Users never discover --concurrency and run slow single-threaded indexes.
 
 2. **Date validation missing**
    - File: search.ts:25-27
-   - Issue: Invalid dates silently return no results
-   - Fix: Validate ISO format, throw error with example
+   - What this code does: Parses the --after and --before dates for a search.
+   - Problem: An invalid date such as `2025-13-01` silently returns no results.
+   - Fix: Validate the ISO format and throw an error that shows an example.
+   - If we skip it: Users conclude there are no matches and miss real results.
 
 #### Minor
-1. **Progress indicators**
+3. **Progress indicators**
    - File: indexer.ts:130
-   - Issue: No "X of Y" counter for long operations
-   - Impact: Users don't know how long to wait
+   - What this code does: Loops over every conversation to index it.
+   - Problem: With 5,000 conversations there is no "X of Y" counter for several minutes.
+   - Fix: Print a counter every 100 items.
+   - If we skip it: Users don't know how long to wait and may kill the process.
 
 ### Recommendations
 - Add progress reporting for user experience
-- Consider config file for excluded projects (portability)
+- Move the excluded-projects list into a config file so the tool works on other machines
 
 ### Assessment
 
 **Ready to merge: With fixes**
 
 **Reasoning:** Core implementation is solid with good architecture and tests. Important issues (help text, date validation) are easily fixed and don't affect core functionality.
+
+**Assumed load:** One developer running the CLI locally (README).
+
+**Not checked:** Did not run the indexer against a real conversation archive.
 ```

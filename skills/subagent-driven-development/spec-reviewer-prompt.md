@@ -58,4 +58,8 @@ Task tool (general-purpose):
     Report:
     - ✅ Spec compliant (if everything matches after code inspection)
     - ❌ Issues found: [list specifically what's missing or extra, with file:line references]
+
+    Each issue needs a concrete case: the requirement that is missing, the caller
+    that breaks, or the extra feature that was built. Re-read the code to confirm
+    it before you report it.
 ```
