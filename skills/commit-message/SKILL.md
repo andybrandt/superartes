@@ -17,7 +17,7 @@ model: sonnet
 Before composing a commit message, make an explicit attribution check:
 
 0. Check if the changes being committed are made in whole or in part by you, if the changes were made wholly by the user and you were just committing them (human edits only) then the whole attribution trailer is the following line:  "Human edits by the user." (or equivalent in the language used by this repository),  no Model, Harness or Session lines.
-1. Identify the exact model identifier you are running as.
+1. Identify the exact model identifier of the model that made the changes. This skill may run on a different model than the work did, so check the conversation for which model was running then (for example a "You are powered by…" note).
 2. Check whether the current platform exposes a resumable session id, local transcript id, thread id, or equivalent.
 3. Check whether the current platform exposes a browser URL or shareable link for this exact thread/session.
 4. Check if you can access the harness name & version you are running under (eg. Claude Code's or Codex's version).
@@ -32,7 +32,7 @@ Session: <resumable session id, local transcript id, thread id, or equivalent - 
 Session-URL: <browser/share URL for this exact thread/session - only if available>
 ```
 
-- **Model** - the exact model identifier you are running as (for example `claude-opus-4-8[1m]`). Always include this line.
+- **Model** - the exact identifier of the model that made the committed changes, not of the model composing the message (for example `claude-opus-4-8[1m]`). If several models made them, list each, comma-separated. If you cannot tell, use your own. Always include this line.
 - **Harness** - the application running you and its version, e.g. Claude Code 2.1.283 or  Codex CLI 0.157.1. Take the version from the harness itself (should be visible to you internally or use claude --version, codex  --version); if it's unavailable, give the name alone. Never guess the version.
 
 - **Session** - the current platform's resumable session id, local transcript id, thread id, or equivalent. Under Claude Code, this is the LOCAL session UUID that `claude --resume <uuid>` accepts. Obtain it in this order:
@@ -64,7 +64,7 @@ Session-URL: <browser/share URL for this exact thread/session - only if availabl
 
 **Claude Code: do not add a `Co-Authored-By:` trailer.** The `Model` line records AI authorship; the co-author trailer is redundant and is intentionally replaced by this scheme. This reverses the previous "no attribution" policy.
 
-**Other harnesses (Codex, Cursor, OpenCode etc.):** always emit `Model:` with your own model identifier. For `Session`, emit your platform's resumable session id, local transcript id, thread id, or equivalent if it exposes one; otherwise omit the line. Emit `Harness:` with your own harness name and version. For `Session-URL`, actively check whether the current session has a real browser/share URL and include it when available; otherwise omit the line.
+**Other harnesses (Codex, Cursor, OpenCode etc.):** always emit `Model:` with the identifier of the model that made the changes. For `Session`, emit your platform's resumable session id, local transcript id, thread id, or equivalent if it exposes one; otherwise omit the line. Emit `Harness:` with your own harness name and version. For `Session-URL`, actively check whether the current session has a real browser/share URL and include it when available; otherwise omit the line.
 
 ## Version number commits
 
