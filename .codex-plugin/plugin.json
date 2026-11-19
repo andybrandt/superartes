@@ -35,8 +35,8 @@
       "Let's add a feature to this project."
     ],
     "brandColor": "#2563EB",
-    "composerIcon": "./assets/superartes-small.svg",
-    "logo": "./assets/app-icon.png",
+    "composerIcon": "./assets/icon.svg",
+    "logo": "./assets/icon.png",
     "screenshots": []
   }
 }
