@@ -122,6 +122,7 @@ Every step must contain the actual content an engineer needs. These are **plan f
 - Complete code in every step — if a step changes code, show the code
 - Exact commands with expected output
 - DRY, YAGNI, TDD, commit at releasable checkpoints (all tests pass, codebase works)
+- Verify plans by reading; executing a plan is execution's job
 
 ## Self-Review
 
@@ -135,9 +136,13 @@ After writing the complete plan, look at the spec with fresh eyes and check the 
 
 If you find issues, fix them inline. No need to re-review — just fix and move on. If you find a spec requirement with no task, add the task.
 
+**Verify by reading, never by executing.** Do not apply the plan's edits to a copy of the repository, run its tests or scripts, or write its code anywhere to "prove" the plan. That implements the work twice. Everything it would catch (an anchor that doesn't match, a bug in the plan's own test code) the plan's TDD steps catch during execution at almost no cost. Cheap reading checks are fine: `grep -c` that each "replace this text" anchor occurs exactly once, reading the code a step touches, and parsing a code block for syntax without running it. Run the plan's code only if the user explicitly asks you to.
+
+**Exception: a spike for a design unknown.** If the plan can't be written without knowing whether an approach works at all, a short throwaway experiment limited to that one question is allowed. Tell the user you're doing it. A spike tests one idea. It never applies the plan.
+
 ## Confidence in plan assessment  
 
-Asses your confidence in the plan as created on the scale of 0-100%, where 100% means you are fully certain executing as planned will deliver all the changes and not introduce any new bugs (errors). Include this confidence number when you will later present the plan to the user. 
+Asses your confidence in the plan as created on the scale of 0-100%, where 100% means you are fully certain executing as planned will deliver all the changes and not introduce any new bugs (errors). Include this confidence number when you will later present the plan to the user. Base it on reading; never execute the plan to raise it.
 
 ## External Review
 
